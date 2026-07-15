@@ -1,0 +1,16 @@
+{
+  "name": "shumtimes-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebSocket relay for Movies Shumtimes watch-together sync",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.21.1"
+  }
+}

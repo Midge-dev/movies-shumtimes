@@ -17,6 +17,9 @@ import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.playback.PlexPlayerFactory
 import com.moviesshumtimes.tv.playback.TimelineReporter
 import com.moviesshumtimes.tv.playback.decidePlayback
+import com.moviesshumtimes.tv.sync.RelayClient
+import com.moviesshumtimes.tv.sync.RelayConfig
+import com.moviesshumtimes.tv.sync.SyncViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -34,17 +37,23 @@ fun PlayerScreen(
     val reporter = remember(server, clientIdentifier) { TimelineReporter(server, clientIdentifier) }
     val decision = remember(detail) { decidePlayback(detail) }
     val player = remember(decision) { PlexPlayerFactory.create(context, server, decision) }
+    val sync = remember(player) { SyncViewModel(player, RelayClient(RelayConfig.URL), scope) }
 
     BackHandler {
         val duration = detail.duration ?: player.duration.coerceAtLeast(0)
         val position = player.currentPosition.coerceAtLeast(0)
+        sync.stop()
         player.stop()
         scope.launch { reporter.report(detail.ratingKey, "stopped", position, duration) }
         onExit()
     }
 
-    DisposableEffect(player) {
-        onDispose { player.release() }
+    DisposableEffect(player, sync) {
+        sync.start()
+        onDispose {
+            sync.stop()
+            player.release()
+        }
     }
 
     LaunchedEffect(player) {
