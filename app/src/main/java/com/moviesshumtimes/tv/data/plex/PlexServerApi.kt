@@ -33,6 +33,49 @@ private data class MoviesMediaContainer(@SerialName("Metadata") val items: List<
 @Serializable
 private data class MoviesResponse(@SerialName("MediaContainer") val mediaContainer: MoviesMediaContainer)
 
+// streamType: 1 = video, 2 = audio, 3 = subtitle.
+@Serializable
+data class PlexStream(
+    val streamType: Int,
+    val codec: String? = null,
+    val language: String? = null,
+    val key: String? = null,
+    val index: Int? = null,
+    val selected: Boolean = false,
+)
+
+@Serializable
+data class PlexPart(
+    val id: Long,
+    val key: String,
+    val container: String? = null,
+    val duration: Long? = null,
+    @SerialName("Stream") val streams: List<PlexStream> = emptyList(),
+)
+
+@Serializable
+data class PlexMedia(
+    val videoCodec: String? = null,
+    val audioCodec: String? = null,
+    val container: String? = null,
+    val videoResolution: String? = null,
+    @SerialName("Part") val parts: List<PlexPart> = emptyList(),
+)
+
+@Serializable
+data class PlexMovieDetail(
+    val ratingKey: String,
+    val title: String,
+    val duration: Long? = null,
+    @SerialName("Media") val media: List<PlexMedia> = emptyList(),
+)
+
+@Serializable
+private data class MovieDetailMediaContainer(@SerialName("Metadata") val items: List<PlexMovieDetail> = emptyList())
+
+@Serializable
+private data class MovieDetailResponse(@SerialName("MediaContainer") val mediaContainer: MovieDetailMediaContainer)
+
 // Talks directly to a Plex Media Server (as opposed to plex.tv account
 // endpoints) using the server-specific access token from PlexResourcesApi —
 // the account token doesn't work here.
@@ -49,6 +92,11 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
     suspend fun fetchMovies(sectionKey: String): List<PlexMovie> = withContext(Dispatchers.IO) {
         val body = execute("${server.baseUrl}/library/sections/$sectionKey/all")
         json.decodeFromString(MoviesResponse.serializer(), body).mediaContainer.items
+    }
+
+    suspend fun fetchMovieDetail(ratingKey: String): PlexMovieDetail = withContext(Dispatchers.IO) {
+        val body = execute("${server.baseUrl}/library/metadata/$ratingKey")
+        json.decodeFromString(MovieDetailResponse.serializer(), body).mediaContainer.items.first()
     }
 
     private fun execute(url: String): String {

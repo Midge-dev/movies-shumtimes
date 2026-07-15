@@ -21,6 +21,7 @@ import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.plex.PlexIdentity
 import com.moviesshumtimes.tv.data.plex.PlexMovie
+import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
 import com.moviesshumtimes.tv.data.plex.PlexResourcesApi
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.plex.PlexServerApi
@@ -28,6 +29,7 @@ import com.moviesshumtimes.tv.data.plex.TokenStore
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
+import com.moviesshumtimes.tv.ui.player.PlayerScreen
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -55,6 +57,12 @@ private sealed interface AppState {
     data class Error(val message: String) : AppState
     data class Library(val server: PlexServer, val movies: List<PlexMovie>) : AppState
     data class MovieDetail(val server: PlexServer, val movie: PlexMovie, val movies: List<PlexMovie>) : AppState
+    data class Player(
+        val server: PlexServer,
+        val detail: PlexMovieDetail,
+        val movie: PlexMovie,
+        val movies: List<PlexMovie>,
+    ) : AppState
 }
 
 @Composable
@@ -62,9 +70,10 @@ private fun AppRoot() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf<AppState>(AppState.Checking) }
+    var clientIdentifier by remember { mutableStateOf("") }
 
     suspend fun connect(token: String) {
-        val clientIdentifier = PlexIdentity.getOrCreateClientIdentifier(context)
+        clientIdentifier = PlexIdentity.getOrCreateClientIdentifier(context)
         val authApi = PlexAuthApi(clientIdentifier)
         val username = runCatching { authApi.fetchUsername(token) }.getOrNull()
         state = AppState.ConnectingToServer(username)
@@ -105,6 +114,23 @@ private fun AppRoot() {
             server = current.server,
             movie = current.movie,
             onBack = { state = AppState.Library(current.server, current.movies) },
+            onPlay = {
+                scope.launch {
+                    val fetched = runCatching {
+                        PlexServerApi(current.server, clientIdentifier).fetchMovieDetail(current.movie.ratingKey)
+                    }
+                    state = fetched.fold(
+                        onSuccess = { detail -> AppState.Player(current.server, detail, current.movie, current.movies) },
+                        onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
+                    )
+                }
+            },
+        )
+        is AppState.Player -> PlayerScreen(
+            server = current.server,
+            detail = current.detail,
+            clientIdentifier = clientIdentifier,
+            onExit = { state = AppState.MovieDetail(current.server, current.movie, current.movies) },
         )
     }
 }
