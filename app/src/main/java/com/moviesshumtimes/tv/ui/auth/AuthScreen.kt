@@ -31,7 +31,7 @@ private sealed interface AuthState {
 private const val POLL_INTERVAL_MS = 2_000L
 
 @Composable
-fun AuthScreen(onLoggedIn: (username: String) -> Unit) {
+fun AuthScreen(onLoggedIn: (token: String) -> Unit) {
     val context = LocalContext.current
     var state by remember { mutableStateOf<AuthState>(AuthState.Loading) }
 
@@ -56,7 +56,7 @@ fun AuthScreen(onLoggedIn: (username: String) -> Unit) {
             }
 
             TokenStore.saveToken(context, token)
-            onLoggedIn(api.fetchUsername(token))
+            onLoggedIn(token)
         } catch (e: Exception) {
             state = AuthState.Error(e.message ?: "Something went wrong")
         }
