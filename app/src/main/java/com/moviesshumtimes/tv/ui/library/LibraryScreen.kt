@@ -3,6 +3,7 @@ package com.moviesshumtimes.tv.ui.library
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,28 +13,49 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexMovie
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
 @Composable
-fun LibraryScreen(server: PlexServer, movies: List<PlexMovie>, onSelect: (PlexMovie) -> Unit) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(5),
-        contentPadding = PaddingValues(32.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        items(movies, key = { it.ratingKey }) { movie ->
-            MoviePoster(server = server, movie = movie, onClick = { onSelect(movie) })
+fun LibraryScreen(
+    server: PlexServer,
+    movies: List<PlexMovie>,
+    onSelect: (PlexMovie) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                onClick = onOpenSettings,
+                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+            ) { Text("Settings") }
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(5),
+            contentPadding = PaddingValues(32.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            modifier = Modifier.fillMaxWidth().weight(1f),
+        ) {
+            items(movies, key = { it.ratingKey }) { movie ->
+                MoviePoster(server = server, movie = movie, onClick = { onSelect(movie) })
+            }
         }
     }
 }

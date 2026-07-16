@@ -67,6 +67,10 @@ data class PlexMovieDetail(
     val ratingKey: String,
     val title: String,
     val duration: Long? = null,
+    // Position (ms) Plex has recorded from a previous partial watch, via our
+    // own TimelineReporter calls or another Plex client — absent/0 means
+    // start from the beginning.
+    val viewOffset: Long? = null,
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),
 )
 

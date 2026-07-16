@@ -16,8 +16,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.tv.material3.darkColorScheme
+import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.plex.PlexIdentity
 import com.moviesshumtimes.tv.data.plex.PlexMovie
@@ -30,13 +35,25 @@ import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
 import com.moviesshumtimes.tv.ui.player.PlayerScreen
+import com.moviesshumtimes.tv.ui.settings.SettingsScreen
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Edge-to-edge so the player's video surface can claim the entire
+        // physical display — otherwise space reserved for system bars shows
+        // up as extra black bars on top of whatever letterboxing is already
+        // baked into the video itself.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).let { controller ->
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+
         setContent {
-            MaterialTheme {
+            MaterialTheme(colorScheme = darkColorScheme(border = NeonPurple, primary = NeonPurple)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -56,6 +73,7 @@ private sealed interface AppState {
     data class ConnectingToServer(val username: String?) : AppState
     data class Error(val message: String) : AppState
     data class Library(val server: PlexServer, val movies: List<PlexMovie>) : AppState
+    data class Settings(val server: PlexServer, val movies: List<PlexMovie>) : AppState
     data class MovieDetail(val server: PlexServer, val movie: PlexMovie, val movies: List<PlexMovie>) : AppState
     data class Player(
         val server: PlexServer,
@@ -109,6 +127,10 @@ private fun AppRoot() {
             server = current.server,
             movies = current.movies,
             onSelect = { movie -> state = AppState.MovieDetail(current.server, movie, current.movies) },
+            onOpenSettings = { state = AppState.Settings(current.server, current.movies) },
+        )
+        is AppState.Settings -> SettingsScreen(
+            onBack = { state = AppState.Library(current.server, current.movies) },
         )
         is AppState.MovieDetail -> MovieDetailScreen(
             server = current.server,

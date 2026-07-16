@@ -16,8 +16,10 @@ sealed interface PlaybackDecision {
 // Media3 when the container is direct-played — no special handling needed.
 // Image-based subs (pgs/vobsub) can't be rendered by Media3 at all, so if
 // one of those is the *selected* subtitle stream, the only way to see it is
-// a server-side transcode that burns it into the video.
-fun decidePlayback(detail: PlexMovieDetail): PlaybackDecision {
+// a server-side transcode that burns it into the video. `forceBurn` is the
+// settings-screen override for titles where the automatic per-stream
+// decision guesses wrong.
+fun decidePlayback(detail: PlexMovieDetail, forceBurn: Boolean = false): PlaybackDecision {
     val media = detail.media.firstOrNull() ?: error("No playable media found for ${detail.title}")
     val part = media.parts.firstOrNull() ?: error("No file found for ${detail.title}")
 
@@ -25,7 +27,7 @@ fun decidePlayback(detail: PlexMovieDetail): PlaybackDecision {
         .firstOrNull { it.streamType == SUBTITLE_STREAM_TYPE && it.selected }
         ?.codec?.lowercase()
 
-    return if (selectedSubtitleCodec in BURN_REQUIRED_SUBTITLE_CODECS) {
+    return if (forceBurn || selectedSubtitleCodec in BURN_REQUIRED_SUBTITLE_CODECS) {
         PlaybackDecision.Transcode(detail.ratingKey)
     } else {
         PlaybackDecision.DirectPlay(part)

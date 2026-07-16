@@ -15,12 +15,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexMovie
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
 @Composable
 fun MovieDetailScreen(server: PlexServer, movie: PlexMovie, onBack: () -> Unit, onPlay: () -> Unit) {
@@ -47,7 +49,11 @@ fun MovieDetailScreen(server: PlexServer, movie: PlexMovie, onBack: () -> Unit, 
             movie.summary?.let { summary ->
                 Text(text = summary, color = Color.White, modifier = Modifier.padding(top = 16.dp))
             }
-            Button(onClick = onPlay, modifier = Modifier.padding(top = 24.dp)) {
+            Button(
+                onClick = onPlay,
+                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                modifier = Modifier.padding(top = 24.dp),
+            ) {
                 Text("Play")
             }
         }

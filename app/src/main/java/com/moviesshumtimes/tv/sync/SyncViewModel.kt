@@ -27,6 +27,8 @@ class SyncViewModel(
     private var suppressUntilMs = 0L
     private var collectJob: Job? = null
 
+    val connectionState get() = relay.connectionState
+
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isSuppressed()) return
