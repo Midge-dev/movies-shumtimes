@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Media3's default PlayerControlView focus/pressed highlight otherwise
+         falls back to the platform's default accent color (a system green on
+         this theme, since the app's base theme sets no colorAccent). -->
+    <style name="PlayerControlsTheme" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:colorAccent">@color/neon_purple</item>
+        <item name="android:colorControlActivated">@color/neon_purple</item>
+        <item name="android:colorControlHighlight">@color/neon_purple</item>
+    </style>
+</resources>

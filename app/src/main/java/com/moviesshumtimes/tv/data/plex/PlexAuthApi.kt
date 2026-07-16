@@ -17,10 +17,13 @@ data class PlexPin(
     val expiresIn: Int = 0,
 )
 
+data class PlexAccount(val username: String, val thumb: String?)
+
 @Serializable
 private data class PlexAccountResponse(
     val username: String? = null,
     val title: String? = null,
+    val thumb: String? = null,
 )
 
 // Client for Plex's PIN-based auth flow, meant for limited-input devices
@@ -57,7 +60,7 @@ class PlexAuthApi(private val clientIdentifier: String) {
         execute(request) { json.decodeFromString(PlexPin.serializer(), it) }
     }
 
-    suspend fun fetchUsername(authToken: String): String = withContext(Dispatchers.IO) {
+    suspend fun fetchAccount(authToken: String): PlexAccount = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("https://plex.tv/api/v2/user")
             .get()
@@ -65,7 +68,7 @@ class PlexAuthApi(private val clientIdentifier: String) {
             .withPlexHeaders()
             .build()
         val account = execute(request) { json.decodeFromString(PlexAccountResponse.serializer(), it) }
-        account.username ?: account.title ?: "Plex user"
+        PlexAccount(username = account.username ?: account.title ?: "Plex user", thumb = account.thumb)
     }
 
     private inline fun <T> execute(request: Request, parse: (String) -> T): T {

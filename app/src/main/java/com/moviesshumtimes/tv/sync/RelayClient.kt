@@ -16,8 +16,19 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 
+// username/avatarUrl are only populated for "presence"/"start" lobby
+// messages — playback events (play/pause/seek) leave them null. One shared
+// event shape keeps the relay's dumb-rebroadcast contract simple: it never
+// needs to know about message types, so lobby presence needed no server
+// changes at all.
 @Serializable
-data class SyncEvent(val type: String, val positionMs: Long, val sentAtEpochMs: Long)
+data class SyncEvent(
+    val type: String,
+    val positionMs: Long = 0,
+    val sentAtEpochMs: Long = 0,
+    val username: String? = null,
+    val avatarUrl: String? = null,
+)
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
 
@@ -88,8 +99,8 @@ class RelayClient(private val relayUrl: String, private val scope: CoroutineScop
         }
     }
 
-    fun send(type: String, positionMs: Long) {
-        val event = SyncEvent(type, positionMs, System.currentTimeMillis())
+    fun send(type: String, positionMs: Long = 0, username: String? = null, avatarUrl: String? = null) {
+        val event = SyncEvent(type, positionMs, System.currentTimeMillis(), username, avatarUrl)
         runCatching { webSocket?.send(json.encodeToString(SyncEvent.serializer(), event)) }
     }
 

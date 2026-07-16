@@ -8,16 +8,47 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
+// type is "movie" or "show" — every other Plex library (Anime, Stand-up
+// Comedy, etc.) is really just a custom-named library of one of those two
+// underlying types.
 @Serializable
 data class PlexSection(val key: String, val title: String, val type: String = "")
 
 @Serializable
-data class PlexMovie(
+data class PlexTag(val tag: String)
+
+// A top-level browsable item in a section grid — a movie in a "movie"
+// section, or a show in a "show" section. Same JSON shape either way.
+@Serializable
+data class PlexLibraryItem(
     val ratingKey: String,
     val title: String,
     val year: Int? = null,
     val thumb: String? = null,
     val art: String? = null,
+    val summary: String? = null,
+    // Epoch seconds this was added to the Plex library (for the "date
+    // added" sort/filter) — distinct from originallyAvailableAt, which is
+    // the title's actual release date.
+    val addedAt: Long? = null,
+    val originallyAvailableAt: String? = null,
+    @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
+)
+
+@Serializable
+data class PlexSeason(
+    val ratingKey: String,
+    val title: String,
+    val index: Int? = null,
+    val thumb: String? = null,
+)
+
+@Serializable
+data class PlexEpisode(
+    val ratingKey: String,
+    val title: String,
+    val index: Int? = null,
+    val thumb: String? = null,
     val summary: String? = null,
 )
 
@@ -28,10 +59,22 @@ private data class SectionsMediaContainer(@SerialName("Directory") val directori
 private data class SectionsResponse(@SerialName("MediaContainer") val mediaContainer: SectionsMediaContainer)
 
 @Serializable
-private data class MoviesMediaContainer(@SerialName("Metadata") val items: List<PlexMovie> = emptyList())
+private data class LibraryItemsMediaContainer(@SerialName("Metadata") val items: List<PlexLibraryItem> = emptyList())
 
 @Serializable
-private data class MoviesResponse(@SerialName("MediaContainer") val mediaContainer: MoviesMediaContainer)
+private data class LibraryItemsResponse(@SerialName("MediaContainer") val mediaContainer: LibraryItemsMediaContainer)
+
+@Serializable
+private data class SeasonsMediaContainer(@SerialName("Metadata") val items: List<PlexSeason> = emptyList())
+
+@Serializable
+private data class SeasonsResponse(@SerialName("MediaContainer") val mediaContainer: SeasonsMediaContainer)
+
+@Serializable
+private data class EpisodesMediaContainer(@SerialName("Metadata") val items: List<PlexEpisode> = emptyList())
+
+@Serializable
+private data class EpisodesResponse(@SerialName("MediaContainer") val mediaContainer: EpisodesMediaContainer)
 
 // streamType: 1 = video, 2 = audio, 3 = subtitle.
 @Serializable
@@ -62,6 +105,8 @@ data class PlexMedia(
     @SerialName("Part") val parts: List<PlexPart> = emptyList(),
 )
 
+// Detail needed to actually play something — a movie or an episode, both of
+// which have the same Media/Part/Stream shape in Plex's API.
 @Serializable
 data class PlexMovieDetail(
     val ratingKey: String,
@@ -87,15 +132,25 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun fetchMovieSections(): List<PlexSection> = withContext(Dispatchers.IO) {
+    suspend fun fetchSections(): List<PlexSection> = withContext(Dispatchers.IO) {
         val body = execute("${server.baseUrl}/library/sections")
         json.decodeFromString(SectionsResponse.serializer(), body).mediaContainer.directories
-            .filter { it.type == "movie" }
+            .filter { it.type == "movie" || it.type == "show" }
     }
 
-    suspend fun fetchMovies(sectionKey: String): List<PlexMovie> = withContext(Dispatchers.IO) {
+    suspend fun fetchLibraryItems(sectionKey: String): List<PlexLibraryItem> = withContext(Dispatchers.IO) {
         val body = execute("${server.baseUrl}/library/sections/$sectionKey/all")
-        json.decodeFromString(MoviesResponse.serializer(), body).mediaContainer.items
+        json.decodeFromString(LibraryItemsResponse.serializer(), body).mediaContainer.items
+    }
+
+    suspend fun fetchSeasons(showRatingKey: String): List<PlexSeason> = withContext(Dispatchers.IO) {
+        val body = execute("${server.baseUrl}/library/metadata/$showRatingKey/children")
+        json.decodeFromString(SeasonsResponse.serializer(), body).mediaContainer.items
+    }
+
+    suspend fun fetchEpisodes(seasonRatingKey: String): List<PlexEpisode> = withContext(Dispatchers.IO) {
+        val body = execute("${server.baseUrl}/library/metadata/$seasonRatingKey/children")
+        json.decodeFromString(EpisodesResponse.serializer(), body).mediaContainer.items
     }
 
     suspend fun fetchMovieDetail(ratingKey: String): PlexMovieDetail = withContext(Dispatchers.IO) {

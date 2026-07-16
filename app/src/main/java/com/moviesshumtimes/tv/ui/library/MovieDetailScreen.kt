@@ -20,12 +20,18 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
-import com.moviesshumtimes.tv.data.plex.PlexMovie
+import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
 @Composable
-fun MovieDetailScreen(server: PlexServer, movie: PlexMovie, onBack: () -> Unit, onPlay: () -> Unit) {
+fun MovieDetailScreen(
+    server: PlexServer,
+    movie: PlexLibraryItem,
+    isShow: Boolean,
+    onBack: () -> Unit,
+    onPlay: () -> Unit,
+) {
     BackHandler(onBack = onBack)
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -54,7 +60,7 @@ fun MovieDetailScreen(server: PlexServer, movie: PlexMovie, onBack: () -> Unit, 
                 colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
                 modifier = Modifier.padding(top = 24.dp),
             ) {
-                Text("Play")
+                Text(if (isShow) "View Seasons" else "Play")
             }
         }
     }

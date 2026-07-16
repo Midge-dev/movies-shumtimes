@@ -1,10 +1,13 @@
 package com.moviesshumtimes.tv.ui.auth
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -13,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
@@ -73,8 +77,25 @@ fun AuthScreen(onLoggedIn: (token: String) -> Unit) {
             when (val current = state) {
                 is AuthState.Loading -> Text("Connecting to Plex…")
                 is AuthState.AwaitingLink -> {
-                    Text("On any device, visit plex.tv/link and enter:")
-                    Text(current.code, style = MaterialTheme.typography.displayMedium)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        QrCodeImage(
+                            content = "https://www.plex.tv/link/",
+                            modifier = Modifier
+                                .size(220.dp)
+                                .background(Color.White)
+                                .padding(16.dp),
+                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(24.dp),
+                        ) {
+                            Text("Scan with your phone, or on any device visit plex.tv/link, then enter:")
+                            Text(current.code, style = MaterialTheme.typography.displayMedium)
+                        }
+                    }
                 }
                 is AuthState.Error -> Text("Error: ${current.message}")
             }
