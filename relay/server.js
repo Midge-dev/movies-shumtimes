@@ -5,6 +5,14 @@ const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.RELAY_TOKEN || null;
 const MAX_CLIENTS = 2; // watch-together is always exactly 2 people
 
+// TEMPORARY diagnostics — checking whether close() calls are triggering an
+// uncaught exception that crashes/restarts the process. Remove afterward.
+let lastCloseError = null;
+process.on('uncaughtException', (err) => {
+  lastCloseError = String(err && err.stack || err);
+  console.error('uncaughtException:', err);
+});
+
 // A plain WebSocket.Server with no request handler leaves regular HTTP GETs
 // (e.g. Render's health check) hanging forever, so the WS server is attached
 // to an http.Server that answers those directly.
@@ -14,7 +22,12 @@ const server = http.createServer((req, res) => {
   // gate is confirmed working.
   if (req.url === '/debug-token') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ tokenConfigured: Boolean(TOKEN), tokenLength: TOKEN ? TOKEN.length : 0 }));
+    res.end(JSON.stringify({
+      tokenConfigured: Boolean(TOKEN),
+      tokenLength: TOKEN ? TOKEN.length : 0,
+      uptimeSeconds: process.uptime(),
+      lastCloseError,
+    }));
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -37,9 +50,12 @@ wss.on('connection', (ws, req) => {
   }));
 
   if (TOKEN && searchParams.get('token') !== TOKEN) {
-    // TEMPORARY: testing whether a standard close code (vs our custom 4001)
-    // propagates through the proxy in front of this Render service.
-    ws.close(1008, 'invalid token');
+    try {
+      ws.close(1008, 'invalid token');
+    } catch (err) {
+      lastCloseError = String(err && err.stack || err);
+      console.error('close() threw:', err);
+    }
     return;
   }
 
