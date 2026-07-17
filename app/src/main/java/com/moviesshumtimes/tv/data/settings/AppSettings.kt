@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.moviesshumtimes.tv.BuildConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -17,10 +18,14 @@ data class AppSettings(
     val forceBurnSubtitles: Boolean = false,
 ) {
     companion object {
-        // Same placeholder LAN address used during local Phase F testing —
-        // replace with the deployed Render wss:// URL once that exists.
-        // Port must match relay/server.js's default (PORT env var, else 8080).
-        const val DEFAULT_RELAY_URL = "ws://192.168.0.12:8080"
+        // Baked in at build time from the RELAY_URL repo secret (see
+        // app/build.gradle.kts + .github/workflows/build-apk.yml) so a
+        // sideloaded release APK already points at the right relay. Falls
+        // back to the old LAN placeholder for local dev builds where that
+        // property isn't set (port must match relay/server.js's default,
+        // PORT env var else 8080).
+        val DEFAULT_RELAY_URL =
+            BuildConfig.DEFAULT_RELAY_URL.ifBlank { "ws://192.168.0.12:8080" }
         const val DEFAULT_MAX_BITRATE_KBPS = 8000
     }
 }

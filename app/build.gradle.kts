@@ -14,6 +14,13 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1"
+
+        // Injected from the RELAY_URL repo secret in CI (see
+        // .github/workflows/build-apk.yml) so a sideloaded APK comes with
+        // the relay pre-filled — nobody has to type a wss:// URL on a TV
+        // remote. Falls back to empty (Settings screen's own default kicks
+        // in) for local dev builds where the property isn't set.
+        buildConfigField("String", "DEFAULT_RELAY_URL", "\"${project.findProperty("relayUrl") ?: ""}\"")
     }
 
     buildTypes {
@@ -29,6 +36,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

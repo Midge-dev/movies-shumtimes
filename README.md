@@ -7,10 +7,10 @@ the APK. See `NOTES.md` for technical/architecture details.
 
 ## Building from source (for developers)
 
-This is for building your own APK from a clone of this repo — e.g. if you're
-the one setting up a device rather than just receiving an APK from the host.
-There's no Play Store listing and no prebuilt APK checked into the repo, so
-this is the only way to get the app onto a device the first time.
+**Most people don't need this section** — a prebuilt APK is published
+automatically on every push, see
+[Installing the app](#installing-the-app-for-whoever-is-joining-you) below.
+This section is only for making your own changes to the code.
 
 ### Prerequisites
 
@@ -65,6 +65,15 @@ Once it finishes, the debug APK is at:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+A build made this way won't have a relay URL baked in (that only happens in
+CI, from the `RELAY_URL` repo secret) — the Settings screen falls back to a
+placeholder LAN address, so you'll need to type your relay URL in Settings
+once, same as before this was automated. To bake one in locally instead:
+
+```
+./gradlew assembleDebug -PrelayUrl="wss://your-relay-url?token=..."
+```
+
 That's the file you sideload — see below. (A release build,
 `./gradlew assembleRelease`, works too, but is unsigned by default since no
 signing config is set up in the project; the debug build is simpler to
@@ -84,11 +93,17 @@ sideload for personal use.)
 
 ### Option A — Downloader app (easiest, no computer needed)
 
+Every push to `main` automatically builds a fresh APK and publishes it as a
+direct download here:
+
+```
+https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/app-debug.apk
+```
+
 1. On the Android TV, install **Downloader** from the app store.
-2. Get a link to the APK file from the host (e.g. a Google Drive link set to
-   "anyone with the link can view").
-3. Open Downloader, paste the link, let it download, then install. You'll be
-   prompted to allow installs from Downloader the first time — accept that.
+2. Open Downloader and paste in the link above.
+3. Let it download, then install. You'll be prompted to allow installs from
+   Downloader the first time — accept that.
 
 ### Option B — adb sideload (if you're comfortable with a terminal, or the
 host can walk you through it / remote in)
@@ -97,11 +112,12 @@ host can walk you through it / remote in)
    times to unlock Developer Options.
 2. Developer Options → **Network debugging** → on. Note the IP address shown
    on screen.
-3. From a computer with `adb` and the APK file (if you built it yourself per
-   the section above, that's `app/build/outputs/apk/debug/app-debug.apk`):
+3. From a computer with `adb`, grab the APK (either download it from
+   [the latest release](https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/app-debug.apk),
+   or build it yourself per the section above) and install it:
    ```
    adb connect <tv-ip-address>:5555
-   adb install app/build/outputs/apk/debug/app-debug.apk
+   adb install app-debug.apk
    ```
 4. Accept the connection prompt that appears on the TV.
 
@@ -114,9 +130,18 @@ host can walk you through it / remote in)
 
 ### Settings — relay URL
 
+If you got the APK from the [latest release](https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/app-debug.apk),
+the **Relay URL** field in Settings should already be filled in — the host's
+relay URL/token gets baked into the build in CI (via a GitHub Actions
+secret), so nobody has to type a `wss://...?token=...` string on a TV
+remote. Just open **Settings** and confirm it's populated; nothing to do.
+
+Only touch this if you're pointing at a different relay (e.g. you built the
+app from source yourself without setting the `RELAY_URL` secret):
+
 1. From the library screen, open **Settings**.
-2. Paste the relay URL the host gave you into the **Relay URL** field
-   (include `?token=...` on the end if they gave you one).
+2. Paste the relay URL into the **Relay URL** field (include `?token=...`
+   on the end if the relay requires one).
 3. Save.
 
 ### Watching together
