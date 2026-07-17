@@ -50,12 +50,10 @@ wss.on('connection', (ws, req) => {
   }));
 
   if (TOKEN && searchParams.get('token') !== TOKEN) {
-    try {
-      ws.close(1008, 'invalid token');
-    } catch (err) {
-      lastCloseError = String(err && err.stack || err);
-      console.error('close() threw:', err);
-    }
+    // TEMPORARY: testing ws.terminate() (raw socket kill) vs ws.close()
+    // (graceful handshake) -- close() wasn't propagating to the client
+    // promptly through Render's proxy in earlier tests.
+    ws.terminate();
     return;
   }
 
