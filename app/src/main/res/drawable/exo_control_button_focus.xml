@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Explicit focus/press background for Media3's TV control buttons.
+     ?android:attr/selectableItemBackground falls back to the platform's
+     stock Holo-derived ripple/focus colors on PlayerControlsTheme's parent
+     (Theme.NoTitleBar.Fullscreen predates Material color attrs), so
+     colorAccent/colorControlHighlight overrides there are silently ignored.
+     Setting this drawable directly on each button bypasses that. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="oval">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="28dp"
+                android:centerColor="@color/neon_purple_glow"
+                android:endColor="@color/neon_purple" />
+            <stroke
+                android:width="2dp"
+                android:color="@color/neon_purple_glow" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="oval">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="28dp"
+                android:centerColor="@color/neon_purple_glow"
+                android:endColor="@color/neon_purple" />
+        </shape>
+    </item>
+    <item android:drawable="@android:color/transparent" />
+</selector>

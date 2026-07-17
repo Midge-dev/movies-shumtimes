@@ -2,7 +2,8 @@ package com.moviesshumtimes.tv.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val NeonPurple = Color(0xFFB026E0)
+val NeonPurple = Color(0xFFAD2BD7)
+val NeonPurpleGlow = Color(0xFFE795FC)
 
 // tv-material3's default dark color tokens are tuned for close-up phone
 // viewing and read low-contrast from a couch on a real TV panel — this is

@@ -23,6 +23,8 @@ import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 
 @Composable
 fun MovieDetailScreen(
@@ -58,6 +60,8 @@ fun MovieDetailScreen(
             Button(
                 onClick = onPlay,
                 colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
                 modifier = Modifier.padding(top = 24.dp),
             ) {
                 Text(if (isShow) "View Seasons" else "Play")

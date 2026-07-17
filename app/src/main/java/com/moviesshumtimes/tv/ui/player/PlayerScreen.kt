@@ -5,6 +5,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
@@ -31,8 +32,11 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.Player
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
@@ -117,6 +121,20 @@ fun PlayerScreen(
     // event ever reaches the embedded native view.
     LaunchedEffect(Unit) { screenFocusRequester.requestFocus() }
 
+    // Media3's own controllerShowTimeoutMs only reschedules the hide on an
+    // isPlaying state *change* — if the movie is already playing by the time
+    // the controller first shows (the normal case entering from the Lobby),
+    // that timer never gets armed and the controller (and our title/sync
+    // overlays, which key off the same controllerVisible flag) sit onscreen
+    // until a real pause/play toggle happens to trigger it. Driving the hide
+    // ourselves sidesteps relying on that internal scheduling.
+    LaunchedEffect(controllerVisible) {
+        if (controllerVisible) {
+            delay(3_000)
+            playerView?.hideController()
+        }
+    }
+
     BackHandler {
         val duration = detail.duration ?: player.duration.coerceAtLeast(0)
         val position = player.currentPosition.coerceAtLeast(0)
@@ -132,6 +150,21 @@ fun PlayerScreen(
             sync.stop()
             player.release()
         }
+    }
+
+    // The player isn't otherwise tied to the Activity lifecycle, so leaving
+    // the app (home button, switching apps) doesn't stop it — audio and
+    // playback kept running in the background. Pausing on ON_STOP matches
+    // what every other TV player app does.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, player) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                player.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     DisposableEffect(player) {
@@ -179,12 +212,40 @@ fun PlayerScreen(
                 val themedContext = ContextThemeWrapper(context, R.style.PlayerControlsTheme)
                 PlayerView(themedContext).apply {
                     useController = true
+                    controllerShowTimeoutMs = 3_000
+                    // Otherwise PlayerView re-shows the controller on its own
+                    // whenever playback state fires an event (buffering
+                    // blips, position updates), fighting our own hide timer
+                    // below and making the auto-hide effectively invisible
+                    // during normal viewing.
+                    controllerAutoShow = false
                     this.player = player
                     playerView = this
+                    // controllerAutoShow=false means Media3 won't show the
+                    // controller on its own even for the very first frame —
+                    // do that one show explicitly so title/controls still
+                    // greet the user on entry, same as before.
+                    showController()
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
                     )
+                    // Deferred to post(): PlayerView's controller row isn't
+                    // guaranteed fully inflated/attached the instant this
+                    // apply{} block runs, and findViewById on a not-yet-ready
+                    // subtree silently no-ops instead of failing loudly.
+                    post {
+                        listOf(
+                            androidx.media3.ui.R.id.exo_play_pause,
+                            androidx.media3.ui.R.id.exo_prev,
+                            androidx.media3.ui.R.id.exo_next,
+                        ).forEach { id ->
+                            findViewById<View>(id)?.apply {
+                                background = ContextCompat.getDrawable(themedContext, R.drawable.exo_control_button_focus)
+                                foreground = null
+                            }
+                        }
+                    }
                     findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
                         setPlayedColor(NeonPurple.toArgb())
                         setScrubberColor(NeonPurple.toArgb())
@@ -212,6 +273,17 @@ fun PlayerScreen(
         )
         if (isBuffering) {
             BufferingSpinner(modifier = Modifier.align(Alignment.Center))
+        }
+        if (controllerVisible) {
+            Text(
+                text = detail.title,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(24.dp)
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
         if (connectionState != ConnectionState.CONNECTED && controllerVisible) {
             Text(

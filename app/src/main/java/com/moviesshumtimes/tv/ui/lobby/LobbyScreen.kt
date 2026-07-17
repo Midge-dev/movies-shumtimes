@@ -40,6 +40,8 @@ import com.moviesshumtimes.tv.data.settings.SettingsStore
 import com.moviesshumtimes.tv.sync.ConnectionState
 import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
@@ -138,6 +140,8 @@ fun LobbyScreen(
                     onStart()
                 },
                 colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
                 modifier = Modifier.padding(top = 48.dp),
             ) {
                 Text("Start")

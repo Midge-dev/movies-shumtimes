@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,7 +35,10 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.settings.AppSettings
 import com.moviesshumtimes.tv.data.settings.SettingsStore
+import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -78,7 +80,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Relay URL (watch-together server)")
-            BasicTextField(
+            ClickToTypeTextField(
                 value = settings.relayUrl,
                 onValueChange = { settings = settings.copy(relayUrl = it) },
                 textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
@@ -99,6 +101,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                     Button(
                         onClick = { settings = settings.copy(maxVideoBitrateKbps = preset) },
                         colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                        border = neonPurpleButtonBorder(),
+                        glow = neonPurpleButtonGlow(),
                         modifier = Modifier
                             .let { if (index == 0) it.focusRequester(bitrateRowFocus) else it }
                             .focusProperties {
@@ -117,6 +121,8 @@ fun SettingsScreen(onBack: () -> Unit) {
             Button(
                 onClick = { settings = settings.copy(forceBurnSubtitles = !settings.forceBurnSubtitles) },
                 colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
                 modifier = Modifier
                     .focusRequester(forceBurnFocus)
                     .focusProperties {
@@ -136,6 +142,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
             },
             colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+            border = neonPurpleButtonBorder(),
+            glow = neonPurpleButtonGlow(),
             modifier = Modifier
                 .focusRequester(saveFocus)
                 .focusProperties { up = forceBurnFocus },

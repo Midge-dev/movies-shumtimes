@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +33,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,7 +48,10 @@ import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 
 @Composable
 fun LibraryScreen(
@@ -95,6 +98,8 @@ fun LibraryScreen(
                         Button(
                             onClick = { onSelectSection(section) },
                             colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                            border = neonPurpleButtonBorder(),
+                            glow = neonPurpleButtonGlow(),
                         ) {
                             Text(if (selected) "[${section.title}]" else section.title)
                         }
@@ -103,6 +108,8 @@ fun LibraryScreen(
                 Button(
                     onClick = onOpenSettings,
                     colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    border = neonPurpleButtonBorder(),
+                    glow = neonPurpleButtonGlow(),
                 ) { Text("Settings") }
             }
 
@@ -111,14 +118,14 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                BasicTextField(
+                ClickToTypeTextField(
                     value = query,
                     onValueChange = { query = it },
                     textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
                     singleLine = true,
                     decorationBox = { inner ->
                         if (query.isEmpty()) {
-                            Text("Search ${selectedSection.title}…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Search ${selectedSection.title}…", color = Color.White)
                         }
                         inner()
                     },
@@ -138,11 +145,15 @@ fun LibraryScreen(
                         }
                     },
                     colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    border = neonPurpleButtonBorder(),
+                    glow = neonPurpleButtonGlow(),
                     modifier = Modifier.focusRequester(sortButtonFocus).focusProperties { up = searchFocus },
                 ) { Text("Sort: ${sortMode.label}") }
                 Button(
                     onClick = { filtersExpanded = true },
                     colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    border = neonPurpleButtonBorder(),
+                    glow = neonPurpleButtonGlow(),
                 ) { Text(if (filtersExpanded) "[Filter]" else "Filter") }
             }
 
@@ -273,6 +284,8 @@ private fun FilterOptionRow(label: String, selected: Boolean, onClick: () -> Uni
     Button(
         onClick = onClick,
         colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+        border = neonPurpleButtonBorder(),
+        glow = neonPurpleButtonGlow(),
         modifier = modifier.fillMaxWidth(),
     ) {
         Text(if (selected) "[$label]" else label)
