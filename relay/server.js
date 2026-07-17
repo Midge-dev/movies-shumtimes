@@ -9,6 +9,14 @@ const MAX_CLIENTS = 2; // watch-together is always exactly 2 people
 // (e.g. Render's health check) hanging forever, so the WS server is attached
 // to an http.Server that answers those directly.
 const server = http.createServer((req, res) => {
+  // TEMPORARY diagnostic route — reports only whether RELAY_TOKEN made it
+  // into the process env, never the value itself. Remove once the token
+  // gate is confirmed working.
+  if (req.url === '/debug-token') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ tokenConfigured: Boolean(TOKEN), tokenLength: TOKEN ? TOKEN.length : 0 }));
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('shumtimes relay ok\n');
 });
