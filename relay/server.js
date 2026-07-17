@@ -37,7 +37,9 @@ wss.on('connection', (ws, req) => {
   }));
 
   if (TOKEN && searchParams.get('token') !== TOKEN) {
-    ws.close(4001, 'invalid token');
+    // TEMPORARY: delayed close, testing whether Render/Cloudflare's proxy
+    // drops a close frame sent immediately after the handshake completes.
+    setTimeout(() => ws.close(4001, 'invalid token'), 200);
     return;
   }
 
