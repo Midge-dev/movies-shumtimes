@@ -5,6 +5,71 @@ playback — built for two people on separate Plex accounts/servers/houses to
 watch the same movie in sync. Not on the Play Store; installed by sideloading
 the APK. See `NOTES.md` for technical/architecture details.
 
+## Building from source (for developers)
+
+This is for building your own APK from a clone of this repo — e.g. if you're
+the one setting up a device rather than just receiving an APK from the host.
+There's no Play Store listing and no prebuilt APK checked into the repo, so
+this is the only way to get the app onto a device the first time.
+
+### Prerequisites
+
+- **Git**
+- **JDK 17+** — any distro's OpenJDK works (developed against OpenJDK 21).
+  Check with `java -version`.
+- **Android SDK command-line tools** — you don't need the full Android
+  Studio GUI, just the SDK. Easiest path is still to install [Android
+  Studio](https://developer.android.com/studio) and let it manage the SDK
+  for you; if you'd rather stay CLI-only:
+  1. Download the "command line tools only" package from the same page.
+  2. Unzip it so the layout is `<sdk-root>/cmdline-tools/latest/...` (the
+     zip extracts to a `cmdline-tools` folder — you need to move it one
+     level deeper into `latest/`, that trips people up).
+  3. Install the pieces this project needs:
+     ```
+     sdkmanager --sdk_root=<sdk-root> "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+     ```
+  4. Accept the licenses: `sdkmanager --sdk_root=<sdk-root> --licenses`
+- **Environment variables** — add to your `~/.bashrc`/`~/.zshrc` (adjust the
+  path to wherever you installed the SDK):
+  ```
+  export ANDROID_HOME="$HOME/android-sdk"
+  export ANDROID_SDK_ROOT="$HOME/android-sdk"
+  export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools"
+  ```
+  Open a new terminal (or `source` the file) afterwards.
+
+Gradle itself doesn't need installing — the repo ships a wrapper
+(`./gradlew`) that downloads the exact Gradle version (9.4.1) on first run.
+
+### Clone and build
+
+```
+git clone https://github.com/Midge-dev/movies-shumtimes.git
+cd movies-shumtimes
+./gradlew assembleDebug
+```
+
+The first run will download Gradle 9.4.1 and all dependencies, so expect it
+to take a few minutes. If it can't find your SDK, create a
+`local.properties` file in the repo root (this file is gitignored —
+everyone needs their own) pointing at it:
+
+```
+sdk.dir=/path/to/your/android-sdk
+```
+
+Once it finishes, the debug APK is at:
+
+```
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+That's the file you sideload — see below. (A release build,
+`./gradlew assembleRelease`, works too, but is unsigned by default since no
+signing config is set up in the project; the debug build is simpler to
+sideload for personal use.)
+
 ## Installing the app (for whoever's joining you)
 
 ### What you need
@@ -32,10 +97,11 @@ host can walk you through it / remote in)
    times to unlock Developer Options.
 2. Developer Options → **Network debugging** → on. Note the IP address shown
    on screen.
-3. From a computer with `adb` and the APK file:
+3. From a computer with `adb` and the APK file (if you built it yourself per
+   the section above, that's `app/build/outputs/apk/debug/app-debug.apk`):
    ```
    adb connect <tv-ip-address>:5555
-   adb install movies-shumtimes.apk
+   adb install app/build/outputs/apk/debug/app-debug.apk
    ```
 4. Accept the connection prompt that appears on the TV.
 
