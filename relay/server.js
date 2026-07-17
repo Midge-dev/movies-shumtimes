@@ -26,6 +26,16 @@ const wss = new WebSocket.Server({ server });
 wss.on('connection', (ws, req) => {
   const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
 
+  // TEMPORARY diagnostic — echoes what the server actually saw for this
+  // upgrade request, to rule out a proxy stripping the query string before
+  // it reaches the app. Remove once the token gate is confirmed working.
+  ws.send(JSON.stringify({
+    debugRawUrl: req.url,
+    debugReceivedToken: searchParams.get('token'),
+    debugTokenConfigured: Boolean(TOKEN),
+    debugMatches: searchParams.get('token') === TOKEN,
+  }));
+
   if (TOKEN && searchParams.get('token') !== TOKEN) {
     ws.close(4001, 'invalid token');
     return;
