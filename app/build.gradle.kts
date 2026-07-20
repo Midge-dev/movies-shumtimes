@@ -32,6 +32,17 @@ android {
     }
 }
 
+// The Gradle module is named "app" (see settings.gradle.kts), so the APK
+// would otherwise default to app-debug.apk/app-release.apk — override it to
+// something recognizable for whoever's downloading it to sideload.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("movies-shumtimes.apk")
+        }
+    }
+}
+
 dependencies {
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.ktx)

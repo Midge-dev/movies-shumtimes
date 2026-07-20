@@ -62,7 +62,7 @@ sdk.dir=/path/to/your/android-sdk
 Once it finishes, the debug APK is at:
 
 ```
-app/build/outputs/apk/debug/app-debug.apk
+app/build/outputs/apk/debug/movies-shumtimes.apk
 ```
 
 The Settings screen falls back to a placeholder LAN address until you set a
@@ -93,7 +93,7 @@ Every push to `main` automatically builds a fresh APK and publishes it as a
 direct download here:
 
 ```
-https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/app-debug.apk
+https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/movies-shumtimes.apk
 ```
 
 1. On the Android TV, install **Downloader** from the app store.
@@ -109,11 +109,11 @@ host can walk you through it / remote in)
 2. Developer Options → **Network debugging** → on. Note the IP address shown
    on screen.
 3. From a computer with `adb`, grab the APK (either download it from
-   [the latest release](https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/app-debug.apk),
+   [the latest release](https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/movies-shumtimes.apk),
    or build it yourself per the section above) and install it:
    ```
    adb connect <tv-ip-address>:5555
-   adb install app-debug.apk
+   adb install movies-shumtimes.apk
    ```
 4. Accept the connection prompt that appears on the TV.
 

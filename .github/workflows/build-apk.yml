@@ -31,4 +31,4 @@ jobs:
           name: Latest build
           body: Automatically built from the latest push to main. Download `app-debug.apk` below and sideload it.
           prerelease: false
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: app/build/outputs/apk/debug/movies-shumtimes.apk
