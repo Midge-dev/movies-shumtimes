@@ -124,6 +124,15 @@ host can walk you through it / remote in)
    go to that address and enter the code.
 3. Once logged in, you should see the host's shared library.
 
+### Settings — library source
+
+If your Plex account can see more than one server (e.g. you're a Friend on
+someone else's library too, not just the host's), open **Settings** →
+**Available sources** and pick the host's server explicitly — otherwise the
+app falls back to a guess that isn't always right, and you'd end up browsing
+the wrong (or an incomplete) library. If you only have access to one server,
+there's nothing to do here.
+
 ### Settings — relay URL
 
 Every install needs its own relay URL entered once — nothing is baked into
