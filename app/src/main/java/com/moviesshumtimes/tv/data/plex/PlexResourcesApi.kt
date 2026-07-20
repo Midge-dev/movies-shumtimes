@@ -6,6 +6,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -24,6 +25,11 @@ data class PlexResource(
     val name: String,
     val provides: String = "",
     val owned: Boolean = false,
+    // Plex's stable per-server machine ID — distinct from the app's own
+    // client identifier passed into PlexResourcesApi's constructor. Used to
+    // remember a user's explicit server choice across resource re-fetches,
+    // since connection URIs/tokens can change but this doesn't.
+    @SerialName("clientIdentifier") val machineIdentifier: String = "",
     val accessToken: String? = null,
     val connections: List<PlexConnection> = emptyList(),
 )
@@ -60,24 +66,35 @@ class PlexResourcesApi(private val clientIdentifier: String) {
         }
     }
 
-    suspend fun findReachableServer(accountToken: String): PlexServer? {
-        // Prefer servers shared with this account (owned == false) over ones
-        // this account owns itself — the whole point of this app is watching
-        // someone else's library, and an owned server (e.g. a test PMS on
-        // this same device) would otherwise win the race just by being local
-        // and instant to reach.
-        val servers = fetchResources(accountToken)
-            .filter { "server" in it.provides && it.accessToken != null }
-            .sortedBy { it.owned }
-        for (resource in servers) {
-            val token = resource.accessToken ?: continue
-            val (direct, relay) = resource.connections.partition { !it.relay }
-            val connection = firstReachable(direct, token) ?: firstReachable(relay, token)
-            if (connection != null) {
-                return PlexServer(resource.name, connection.uri.trimEnd('/'), token)
-            }
+    suspend fun listServers(accountToken: String): List<PlexResource> =
+        fetchResources(accountToken).filter { "server" in it.provides && it.accessToken != null }
+
+    // preferredMachineIdentifier is a server the user explicitly chose in
+    // Settings (see AppSettings.selectedServerId). When set, only that
+    // server is tried — no silent fallback to a different one, since a
+    // silent fallback is exactly what caused a real bug: the app used to
+    // always prefer any owned==false (shared) resource, which broke for
+    // an account (e.g. the cousin's own) that has access to more than one
+    // shared server and owns its real one, landing on the wrong library.
+    // When null (nothing chosen yet, e.g. first launch), fall back to that
+    // same owned-server-last heuristic as a reasonable default.
+    suspend fun findReachableServer(accountToken: String, preferredMachineIdentifier: String? = null): PlexServer? {
+        val servers = listServers(accountToken)
+        if (preferredMachineIdentifier != null) {
+            val chosen = servers.firstOrNull { it.machineIdentifier == preferredMachineIdentifier } ?: return null
+            return connectTo(chosen)
+        }
+        for (resource in servers.sortedBy { it.owned }) {
+            connectTo(resource)?.let { return it }
         }
         return null
+    }
+
+    private suspend fun connectTo(resource: PlexResource): PlexServer? {
+        val token = resource.accessToken ?: return null
+        val (direct, relay) = resource.connections.partition { !it.relay }
+        val connection = firstReachable(direct, token) ?: firstReachable(relay, token)
+        return connection?.let { PlexServer(resource.name, it.uri.trimEnd('/'), token) }
     }
 
     private suspend fun firstReachable(candidates: List<PlexConnection>, token: String): PlexConnection? =

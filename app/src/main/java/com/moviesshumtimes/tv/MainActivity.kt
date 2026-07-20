@@ -44,6 +44,7 @@ import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.plex.PlexServerApi
 import com.moviesshumtimes.tv.data.plex.TokenStore
+import com.moviesshumtimes.tv.data.settings.SettingsStore
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
@@ -52,6 +53,7 @@ import com.moviesshumtimes.tv.ui.library.ShowSeasonsScreen
 import com.moviesshumtimes.tv.ui.lobby.LobbyScreen
 import com.moviesshumtimes.tv.ui.player.PlayerScreen
 import com.moviesshumtimes.tv.ui.settings.SettingsScreen
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val SECTION_TYPE_SHOW = "show"
@@ -141,8 +143,10 @@ private fun AppRoot() {
     var state by remember { mutableStateOf<AppState>(AppState.Checking) }
     var clientIdentifier by remember { mutableStateOf("") }
     var localAccount by remember { mutableStateOf<PlexAccount?>(null) }
+    var accountToken by remember { mutableStateOf<String?>(null) }
 
     suspend fun connect(token: String) {
+        accountToken = token
         clientIdentifier = PlexIdentity.getOrCreateClientIdentifier(context)
         val authApi = PlexAuthApi(clientIdentifier)
         val account = runCatching { authApi.fetchAccount(token) }.getOrNull()
@@ -150,7 +154,8 @@ private fun AppRoot() {
         state = AppState.ConnectingToServer(account?.username)
 
         state = runCatching {
-            val server = PlexResourcesApi(clientIdentifier).findReachableServer(token)
+            val selectedServerId = SettingsStore.observe(context).first().selectedServerId
+            val server = PlexResourcesApi(clientIdentifier).findReachableServer(token, selectedServerId)
                 ?: error("No reachable Plex server found — is the cousin's server online?")
             val serverApi = PlexServerApi(server, clientIdentifier)
             val sections = serverApi.fetchSections()
@@ -194,7 +199,13 @@ private fun AppRoot() {
             onOpenSettings = { state = AppState.Settings(current.ctx) },
         )
         is AppState.Settings -> SettingsScreen(
+            accountToken = accountToken ?: "",
+            clientIdentifier = clientIdentifier,
             onBack = { state = AppState.Library(current.ctx) },
+            onSaved = {
+                val token = accountToken
+                if (token != null) scope.launch { connect(token) } else state = AppState.Library(current.ctx)
+            },
         )
         is AppState.MovieDetail -> MovieDetailScreen(
             server = current.ctx.server,

@@ -65,14 +65,10 @@ Once it finishes, the debug APK is at:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-A build made this way won't have a relay URL baked in (that only happens in
-CI, from the `RELAY_URL` repo secret) — the Settings screen falls back to a
-placeholder LAN address, so you'll need to type your relay URL in Settings
-once, same as before this was automated. To bake one in locally instead:
-
-```
-./gradlew assembleDebug -PrelayUrl="wss://your-relay-url?token=..."
-```
+The Settings screen falls back to a placeholder LAN address until you set a
+real relay URL — every install configures its own, either by typing it in
+Settings or with the "Pair from phone" button there (see
+[Settings — relay URL](#settings--relay-url) below).
 
 That's the file you sideload — see below. (A release build,
 `./gradlew assembleRelease`, works too, but is unsigned by default since no
@@ -130,19 +126,18 @@ host can walk you through it / remote in)
 
 ### Settings — relay URL
 
-If you got the APK from the [latest release](https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/app-debug.apk),
-the **Relay URL** field in Settings should already be filled in — the host's
-relay URL/token gets baked into the build in CI (via a GitHub Actions
-secret), so nobody has to type a `wss://...?token=...` string on a TV
-remote. Just open **Settings** and confirm it's populated; nothing to do.
+Every install needs its own relay URL entered once — nothing is baked into
+the APK. From the library screen, open **Settings**, then either:
 
-Only touch this if you're pointing at a different relay (e.g. you built the
-app from source yourself without setting the `RELAY_URL` secret):
+- **Pair from phone (easiest)** — press **Pair from phone**. A QR code and a
+  URL appear. Scan it with your phone (it needs to be on the **same Wi-Fi**
+  as the TV), which opens a small page where you paste the relay URL and hit
+  send — it fills in the Settings field on the TV automatically. No typing
+  on the TV remote.
+- **Type it manually** — select the **Relay URL** field and enter it
+  directly (include `?token=...` on the end if the relay requires one).
 
-1. From the library screen, open **Settings**.
-2. Paste the relay URL into the **Relay URL** field (include `?token=...`
-   on the end if the relay requires one).
-3. Save.
+Then **Save**.
 
 ### Watching together
 

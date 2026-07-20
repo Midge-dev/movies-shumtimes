@@ -24,6 +24,7 @@ import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.plex.PlexIdentity
 import com.moviesshumtimes.tv.data.plex.TokenStore
+import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import kotlinx.coroutines.delay
 
 private sealed interface AuthState {

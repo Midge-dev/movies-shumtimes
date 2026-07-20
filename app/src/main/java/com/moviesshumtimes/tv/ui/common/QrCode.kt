@@ -1,4 +1,4 @@
-package com.moviesshumtimes.tv.ui.auth
+package com.moviesshumtimes.tv.ui.common
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
