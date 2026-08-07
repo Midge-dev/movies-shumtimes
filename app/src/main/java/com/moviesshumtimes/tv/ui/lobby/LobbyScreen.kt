@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -23,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -70,10 +73,14 @@ fun LobbyScreen(
 ) {
     val connectionState by relay.connectionState.collectAsState()
     var roster by remember { mutableStateOf<Map<String, RosterEntry>>(emptyMap()) }
-    var chatEnabled by remember { mutableStateOf(false) }
+    var showChatModal by remember { mutableStateOf(false) }
     val chatMessages = remember { MutableSharedFlow<ChatMessage>(extraBufferCapacity = 16) }
 
     BackHandler(onBack = onBack)
+    // Composed after (and so takes priority over) the screen-level handler
+    // above while the modal is open — dismisses just the modal on Back
+    // instead of leaving the whole lobby.
+    BackHandler(enabled = showChatModal) { showChatModal = false }
 
     LaunchedEffect(relay, connectionState) {
         if (connectionState == ConnectionState.CONNECTED) {
@@ -158,46 +165,86 @@ fun LobbyScreen(
                 }
 
                 Button(
-                    onClick = { chatEnabled = !chatEnabled },
+                    onClick = { showChatModal = true },
                     colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
                     border = neonPurpleButtonBorder(),
                     glow = neonPurpleButtonGlow(),
                 ) {
-                    Text(if (chatEnabled) "Chat: On" else "Enable chat")
-                }
-            }
-
-            if (chatEnabled) {
-                val chatUrl = remember(relay.relayUrl) { relayUrlToChatUrl(relay.relayUrl) }
-                if (chatUrl != null) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        modifier = Modifier
-                            .padding(top = 32.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(24.dp),
-                    ) {
-                        QrCodeImage(
-                            content = chatUrl,
-                            modifier = Modifier.size(160.dp).background(Color.White).padding(12.dp),
-                        )
-                        Column {
-                            Text("Scan with your phone to join the chat", color = Color.White)
-                            Text(chatUrl, color = Color.White, style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                } else {
-                    Text("Chat needs a wss:// or ws:// relay URL — check Settings.", color = Color.White, modifier = Modifier.padding(top = 16.dp))
+                    Text("Chat QR code")
                 }
             }
         }
 
-        if (chatEnabled) {
-            ChatOverlay(
-                messages = chatMessages,
-                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).padding(24.dp),
-            )
+        ChatOverlay(
+            messages = chatMessages,
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).padding(24.dp),
+        )
+
+        if (showChatModal) {
+            ChatQrModal(relayUrl = relay.relayUrl, onDismiss = { showChatModal = false })
+        }
+    }
+}
+
+// A dedicated full-screen modal instead of an inline panel: the lobby's
+// content column is vertically centered and grows with the roster, so
+// appending the QR row to it (the original approach) could get pushed
+// outside the screen's safe area on real TV overscan — cutting off both
+// the QR and the URL text, exactly what happened during Sean's testing.
+// Centering this independently in its own Box guarantees it's always
+// fully visible regardless of what else is on the lobby screen, and it
+// can afford a much bigger, more scannable QR code too.
+@Composable
+private fun ChatQrModal(relayUrl: String, onDismiss: () -> Unit) {
+    val chatUrl = remember(relayUrl) { relayUrlToChatUrl(relayUrl) }
+    val closeFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { closeFocusRequester.requestFocus() }
+
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 640.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Join the chat", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+
+            if (chatUrl != null) {
+                QrCodeImage(
+                    content = chatUrl,
+                    modifier = Modifier
+                        .padding(top = 24.dp)
+                        .size(280.dp)
+                        .background(Color.White)
+                        .padding(16.dp),
+                )
+                Text(
+                    "Scan with your phone (same Wi-Fi as the TV), or visit:",
+                    color = Color.White,
+                    modifier = Modifier.padding(top = 24.dp),
+                )
+                Text(chatUrl, color = Color.White, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
+            } else {
+                Text(
+                    "Chat needs a wss:// or ws:// relay URL — check Settings.",
+                    color = Color.White,
+                    modifier = Modifier.padding(top = 24.dp),
+                )
+            }
+
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
+                modifier = Modifier.padding(top = 32.dp).focusRequester(closeFocusRequester),
+            ) {
+                Text("Close")
+            }
         }
     }
 }
