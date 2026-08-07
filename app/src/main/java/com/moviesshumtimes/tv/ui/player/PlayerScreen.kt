@@ -193,11 +193,19 @@ fun PlayerScreen(
             .focusRequester(screenFocusRequester)
             .onPreviewKeyEvent { keyEvent ->
                 val isSelect = keyEvent.key == Key.DirectionCenter || keyEvent.key == Key.Enter
+                val isDirectional = keyEvent.key == Key.DirectionUp ||
+                    keyEvent.key == Key.DirectionDown ||
+                    keyEvent.key == Key.DirectionLeft ||
+                    keyEvent.key == Key.DirectionRight
                 val controllerHidden = playerView?.isControllerFullyVisible == false
-                if (isSelect && keyEvent.type == KeyEventType.KeyDown &&
+                // Reveal only — never toggle playback here. A hidden
+                // controller should come back on any d-pad input, and the
+                // press that reveals it shouldn't also act on it; pausing
+                // needs a deliberate second press once the controls are
+                // visible and the play/pause button can actually take focus.
+                if ((isSelect || isDirectional) && keyEvent.type == KeyEventType.KeyDown &&
                     keyEvent.nativeKeyEvent.repeatCount == 0 && controllerHidden
                 ) {
-                    player.playWhenReady = !player.playWhenReady
                     playerView?.showController()
                     true
                 } else {

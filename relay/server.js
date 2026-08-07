@@ -5,6 +5,16 @@ const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.RELAY_TOKEN || null;
 const MAX_CLIENTS = 2; // watch-together is always exactly 2 people
 
+// How often to ping clients to detect dead connections, and how it
+// interacts with MAX_CLIENTS: with only 2 slots total, a single "ghost"
+// connection (app killed by Android's low-memory reaper, network dropped
+// mid-movie, etc.) permanently occupies a slot until something notices it's
+// gone — a plain TCP-level timeout through a hosting provider's proxy can
+// take many minutes or never fire at all, during which neither real device
+// can reconnect. Pinging and terminating non-responders bounds that to one
+// interval instead.
+const HEARTBEAT_INTERVAL_MS = 15_000;
+
 // A plain WebSocket.Server with no request handler leaves regular HTTP GETs
 // (e.g. Render's health check) hanging forever, so the WS server is attached
 // to an http.Server that answers those directly.
@@ -42,6 +52,11 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   // Single implicit room: whatever one client sends (play/pause/seek +
   // position + timestamp) gets rebroadcast verbatim to the other client.
   ws.on('message', (data) => {
@@ -52,6 +67,23 @@ wss.on('connection', (ws) => {
     }
   });
 });
+
+// Ghost-connection reaper: terminate() (not close()) is deliberate — a
+// non-responding socket may not be able to complete a graceful close
+// handshake either, so this forces the TCP connection down immediately and
+// frees its MAX_CLIENTS slot right away.
+const heartbeatInterval = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, HEARTBEAT_INTERVAL_MS);
+
+wss.on('close', () => clearInterval(heartbeatInterval));
 
 server.listen(PORT, () => {
   console.log(`Shumtimes relay listening on port ${PORT}`);

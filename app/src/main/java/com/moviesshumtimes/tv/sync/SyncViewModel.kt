@@ -30,9 +30,18 @@ class SyncViewModel(
     val connectionState get() = relay.connectionState
 
     private val listener = object : Player.Listener {
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
+        // Deliberately onPlayWhenReadyChanged, not onIsPlayingChanged:
+        // isPlaying also flips false whenever ExoPlayer pauses itself to
+        // buffer (common on transcoded Plex streams), which broadcast as a
+        // false "pause" and yanked the other side's playback around on
+        // every network hiccup — buffering never touches playWhenReady, so
+        // this only fires for changes ExoPlayer attributes to an actual
+        // request (ours or the built-in controller's), not to buffering,
+        // audio focus loss, or becoming-noisy.
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (reason != Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) return
             if (isSuppressed()) return
-            relay.send(if (isPlaying) "play" else "pause", player.currentPosition)
+            relay.send(if (playWhenReady) "play" else "pause", player.currentPosition)
         }
 
         override fun onPositionDiscontinuity(
