@@ -55,6 +55,7 @@ import com.moviesshumtimes.tv.ui.library.ShowEpisodesScreen
 import com.moviesshumtimes.tv.ui.library.ShowSeasonsScreen
 import com.moviesshumtimes.tv.ui.lobby.LobbyScreen
 import com.moviesshumtimes.tv.ui.player.PlayerScreen
+import com.moviesshumtimes.tv.ui.settings.RelaySetupScreen
 import com.moviesshumtimes.tv.ui.settings.SettingsScreen
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -122,6 +123,9 @@ private sealed interface AppState {
     data object LoggedOut : AppState
     data class ConnectingToServer(val username: String?) : AppState
     data class Error(val message: String) : AppState
+    // Shown once after first login when no relay URL is saved yet — see
+    // RelaySetupScreen. Never revisited once a relay URL exists.
+    data class RelaySetup(val ctx: LibraryContext) : AppState
     data class Library(val ctx: LibraryContext) : AppState
     data class Settings(val ctx: LibraryContext) : AppState
     data class MovieDetail(val ctx: LibraryContext, val movie: PlexLibraryItem) : AppState
@@ -137,7 +141,12 @@ private sealed interface AppState {
     // user actually came from — a movie's detail screen, or an episode list.
     // relay is shared across the Lobby -> Player transition (and back) so
     // the connection — and any active chat — doesn't reconnect on every
-    // screen change; see AppRoot's ensureRelayClient.
+    // screen change; see AppRoot's ensureRelayClient. Lobby.relay is
+    // non-null by construction — see the onPlay/onSelect handlers below,
+    // which only ever build a Lobby when a relay actually exists (there'd
+    // be nothing to wait for otherwise). Player.relay stays nullable since
+    // Player is also reachable directly, skipping the Lobby entirely, when
+    // no relay is configured — solo playback has never depended on one.
     data class Lobby(
         val server: PlexServer,
         val detail: PlexMovieDetail,
@@ -148,7 +157,7 @@ private sealed interface AppState {
         val server: PlexServer,
         val detail: PlexMovieDetail,
         val returnState: AppState,
-        val relay: RelayClient,
+        val relay: RelayClient?,
     ) : AppState
 }
 
@@ -169,12 +178,12 @@ private fun AppRoot() {
     // flow is exited back to browsing (see onBack/onExit below) — reconnect
     // tokens make reconnecting cheap and safe now, so there's no reason to
     // hold the socket open for the whole browsing session too.
-    suspend fun ensureRelayClient(): RelayClient {
+    suspend fun ensureRelayClient(): RelayClient? {
         relayClient?.let { return it }
-        val settings = SettingsStore.observe(context).first()
+        val relayUrl = SettingsStore.observe(context).first().relayUrl?.takeIf { it.isNotBlank() } ?: return null
         val identity = relayIdentity ?: RelayIdentityStore.load(context).also { relayIdentity = it }
         val newClient = RelayClient(
-            relayUrl = settings.relayUrl,
+            relayUrl = relayUrl,
             identity = identity,
             scope = scope,
             onIdentityUpdated = { updated ->
@@ -209,7 +218,9 @@ private fun AppRoot() {
             val firstSection = sections.firstOrNull()
                 ?: error("No movie or show library found on ${server.name}")
             val items = serverApi.fetchLibraryItems(firstSection.key)
-            AppState.Library(LibraryContext(server, sections, firstSection, items))
+            val ctx = LibraryContext(server, sections, firstSection, items)
+            val relayConfigured = !SettingsStore.observe(context).first().relayUrl.isNullOrBlank()
+            if (relayConfigured) AppState.Library(ctx) else AppState.RelaySetup(ctx)
         }.getOrElse { AppState.Error(it.message ?: "Something went wrong connecting to Plex") }
     }
 
@@ -229,6 +240,7 @@ private fun AppRoot() {
         )
         is AppState.LoggedOut -> AuthScreen(onLoggedIn = { token -> scope.launch { connect(token) } })
         is AppState.Error -> Text("Error: ${current.message}")
+        is AppState.RelaySetup -> RelaySetupScreen(onDone = { state = AppState.Library(current.ctx) })
         is AppState.Library -> LibraryScreen(
             server = current.ctx.server,
             sections = current.ctx.sections,
@@ -271,7 +283,17 @@ private fun AppRoot() {
                     } else {
                         val fetched = runCatching { serverApi.fetchMovieDetail(current.movie.ratingKey) }
                         state = fetched.fold(
-                            onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current, ensureRelayClient()) },
+                            onSuccess = { detail ->
+                                val relay = ensureRelayClient()
+                                // No relay configured means no one to wait for —
+                                // skip the Lobby's waiting room and go straight
+                                // to solo playback.
+                                if (relay != null) {
+                                    AppState.Lobby(current.ctx.server, detail, current, relay)
+                                } else {
+                                    AppState.Player(current.ctx.server, detail, current, relay)
+                                }
+                            },
                             onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                         )
                     }
@@ -308,7 +330,14 @@ private fun AppRoot() {
                         PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
                     }
                     state = fetched.fold(
-                        onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current, ensureRelayClient()) },
+                        onSuccess = { detail ->
+                            val relay = ensureRelayClient()
+                            if (relay != null) {
+                                AppState.Lobby(current.ctx.server, detail, current, relay)
+                            } else {
+                                AppState.Player(current.ctx.server, detail, current, relay)
+                            }
+                        },
                         onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                     )
                 }

@@ -185,7 +185,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Relay URL (watch-together server)")
                 ClickToTypeTextField(
-                    value = settings.relayUrl,
+                    value = settings.relayUrl ?: "",
                     onValueChange = { settings = settings.copy(relayUrl = it) },
                     textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
                     modifier = Modifier
@@ -323,7 +323,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
             Button(
                 onClick = {
                     scope.launch {
-                        SettingsStore.save(context, settings)
+                        SettingsStore.save(context, settings.copy(relayUrl = settings.relayUrl?.trim()?.ifBlank { null }))
                         onSaved()
                     }
                 },

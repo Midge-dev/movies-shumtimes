@@ -22,12 +22,17 @@ import kotlinx.coroutines.launch
 // above Lobby/Player now (see MainActivity's AppRoot) so the connection,
 // and chat, survive the Lobby -> Player transition instead of reconnecting
 // on every screen change.
+// relay is nullable: solo playback (no relay configured, or a movie played
+// directly without going through the Lobby) is a fully supported path —
+// start()/stop() simply no-op in that case rather than requiring callers
+// to special-case "no sync" themselves.
 class SyncViewModel(
     private val player: ExoPlayer,
-    private val relay: RelayClient,
+    private val relay: RelayClient?,
     private val scope: CoroutineScope,
 ) {
-    val connectionState get() = relay.connectionState
+    val connectionState: StateFlow<ConnectionState> =
+        relay?.connectionState ?: MutableStateFlow(ConnectionState.DISCONNECTED)
 
     private val _chatMessages = MutableSharedFlow<ChatMessage>(extraBufferCapacity = 16)
     val chatMessages: SharedFlow<ChatMessage> = _chatMessages
@@ -45,11 +50,12 @@ class SyncViewModel(
     private var eventsJob: Job? = null
 
     fun start() {
-        eventsJob = scope.launch { relay.events.collect(::handleEvent) }
+        val relay = relay ?: return
+        eventsJob = scope.launch { relay.events.collect { handleEvent(relay, it) } }
         roleJob = scope.launch {
             relay.seatIndex.collect { seatIndex ->
                 if (seatIndex == null || host != null || guest != null) return@collect
-                if (seatIndex == 0) startAsHost() else startAsGuest()
+                if (seatIndex == 0) startAsHost(relay) else startAsGuest(relay)
             }
         }
     }
@@ -62,7 +68,7 @@ class SyncViewModel(
         clock?.stop()
     }
 
-    private fun startAsHost() {
+    private fun startAsHost(relay: RelayClient) {
         host = HostPlaybackCoordinator(
             myPeerId = relay.myPeerId,
             player = player,
@@ -72,7 +78,7 @@ class SyncViewModel(
         ).also { it.start() }
     }
 
-    private fun startAsGuest() {
+    private fun startAsGuest(relay: RelayClient) {
         val clockSync = ClockSync(
             scope = scope,
             sendPing = { pingId -> relay.send(RelayEvent(kind = "clockPing", fromPeerId = relay.myPeerId, pingId = pingId)) },
@@ -88,7 +94,7 @@ class SyncViewModel(
         ).also { it.start() }
     }
 
-    private fun handleEvent(event: RelayEvent) {
+    private fun handleEvent(relay: RelayClient, event: RelayEvent) {
         // Any message with a fromPeerId is proof-of-life for that peer —
         // the host tracks the roster off of this rather than a separate
         // relay-level "peerJoined" message.

@@ -77,7 +77,7 @@ fun PlayerScreen(
     server: PlexServer,
     detail: PlexMovieDetail,
     clientIdentifier: String,
-    relay: RelayClient,
+    relay: RelayClient?,
     onExit: () -> Unit,
 ) {
     val context = LocalContext.current

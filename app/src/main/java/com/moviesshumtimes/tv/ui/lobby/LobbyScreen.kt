@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -196,6 +197,11 @@ fun LobbyScreen(
 // can afford a much bigger, more scannable QR code too.
 @Composable
 private fun ChatQrModal(relayUrl: String, onDismiss: () -> Unit) {
+    // relayUrl is guaranteed non-placeholder here: LobbyScreen only exists
+    // when ensureRelayClient() already built a real connection from it (see
+    // MainActivity's onPlay/onSelect handlers), so there's nothing left to
+    // validate — just the ws(s):// -> http(s):// scheme swap can fail if
+    // the URL is malformed in some other way (missing host, etc).
     val chatUrl = remember(relayUrl) { relayUrlToChatUrl(relayUrl) }
     val closeFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { closeFocusRequester.requestFocus() }
@@ -206,34 +212,32 @@ private fun ChatQrModal(relayUrl: String, onDismiss: () -> Unit) {
     ) {
         Column(
             modifier = Modifier
-                .widthIn(max = 640.dp)
+                .widthIn(max = 560.dp)
+                .padding(vertical = 24.dp)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(40.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text("Join the chat", style = MaterialTheme.typography.headlineSmall, color = Color.White)
 
-            if (chatUrl != null) {
-                QrCodeImage(
-                    content = chatUrl,
-                    modifier = Modifier
-                        .padding(top = 24.dp)
-                        .size(280.dp)
-                        .background(Color.White)
-                        .padding(16.dp),
-                )
-                Text(
-                    "Scan with your phone (same Wi-Fi as the TV), or visit:",
-                    color = Color.White,
-                    modifier = Modifier.padding(top = 24.dp),
-                )
-                Text(chatUrl, color = Color.White, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
-            } else {
+            if (chatUrl == null) {
                 Text(
                     "Chat needs a wss:// or ws:// relay URL — check Settings.",
                     color = Color.White,
-                    modifier = Modifier.padding(top = 24.dp),
+                    modifier = Modifier.padding(top = 20.dp),
                 )
+            } else {
+                QrCodeImage(
+                    content = chatUrl,
+                    modifier = Modifier
+                        .padding(top = 20.dp)
+                        .size(220.dp)
+                        .background(Color.White)
+                        .padding(12.dp),
+                )
+                Text("Scan with your phone, or visit:", color = Color.White, modifier = Modifier.padding(top = 20.dp))
+                Text(chatUrl, color = Color.White, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
             }
 
             Button(
@@ -241,7 +245,7 @@ private fun ChatQrModal(relayUrl: String, onDismiss: () -> Unit) {
                 colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
                 border = neonPurpleButtonBorder(),
                 glow = neonPurpleButtonGlow(),
-                modifier = Modifier.padding(top = 32.dp).focusRequester(closeFocusRequester),
+                modifier = Modifier.padding(top = 28.dp).focusRequester(closeFocusRequester),
             ) {
                 Text("Close")
             }

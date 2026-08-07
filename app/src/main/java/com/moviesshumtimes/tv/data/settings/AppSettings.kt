@@ -12,7 +12,13 @@ import kotlinx.coroutines.flow.map
 private val Context.settingsDataStore by preferencesDataStore(name = "app_settings")
 
 data class AppSettings(
-    val relayUrl: String = DEFAULT_RELAY_URL,
+    // null until configured — no baked-in/placeholder fallback, since one
+    // doesn't generalize once this app is shared beyond one household's
+    // relay. RelaySetupScreen prompts for this right after first login;
+    // MainActivity treats null as "no watch-together relay" and skips
+    // straight to solo playback rather than showing a Lobby with no one to
+    // wait for.
+    val relayUrl: String? = null,
     val maxVideoBitrateKbps: Int = DEFAULT_MAX_BITRATE_KBPS,
     val forceBurnSubtitles: Boolean = false,
     // Plex resource machineIdentifier of the server to browse, or null to
@@ -20,12 +26,6 @@ data class AppSettings(
     val selectedServerId: String? = null,
 ) {
     companion object {
-        // Placeholder LAN address — every install configures its own relay
-        // via Settings (either typed manually or via the "Pair from phone"
-        // flow), since a baked-in URL/token doesn't generalize once this
-        // app is shared beyond one household's relay (port must match
-        // relay/server.js's default, PORT env var else 8080).
-        const val DEFAULT_RELAY_URL = "ws://192.168.0.12:8080"
         const val DEFAULT_MAX_BITRATE_KBPS = 8000
     }
 }
@@ -39,7 +39,7 @@ object SettingsStore {
     fun observe(context: Context): Flow<AppSettings> =
         context.settingsDataStore.data.map { prefs ->
             AppSettings(
-                relayUrl = prefs[RELAY_URL_KEY] ?: AppSettings.DEFAULT_RELAY_URL,
+                relayUrl = prefs[RELAY_URL_KEY],
                 maxVideoBitrateKbps = prefs[MAX_BITRATE_KEY] ?: AppSettings.DEFAULT_MAX_BITRATE_KBPS,
                 forceBurnSubtitles = prefs[FORCE_BURN_KEY] ?: false,
                 selectedServerId = prefs[SELECTED_SERVER_ID_KEY],
@@ -48,7 +48,11 @@ object SettingsStore {
 
     suspend fun save(context: Context, settings: AppSettings) {
         context.settingsDataStore.edit { prefs ->
-            prefs[RELAY_URL_KEY] = settings.relayUrl
+            if (settings.relayUrl != null) {
+                prefs[RELAY_URL_KEY] = settings.relayUrl
+            } else {
+                prefs.remove(RELAY_URL_KEY)
+            }
             prefs[MAX_BITRATE_KEY] = settings.maxVideoBitrateKbps
             prefs[FORCE_BURN_KEY] = settings.forceBurnSubtitles
             if (settings.selectedServerId != null) {
