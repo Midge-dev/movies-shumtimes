@@ -50,8 +50,10 @@ import com.moviesshumtimes.tv.playback.PlexPlayerFactory
 import com.moviesshumtimes.tv.playback.TimelineReporter
 import com.moviesshumtimes.tv.playback.decidePlayback
 import com.moviesshumtimes.tv.sync.ConnectionState
+import com.moviesshumtimes.tv.sync.PlaybackPhase
 import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.SyncViewModel
+import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -75,6 +77,7 @@ fun PlayerScreen(
     server: PlexServer,
     detail: PlexMovieDetail,
     clientIdentifier: String,
+    relay: RelayClient,
     onExit: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -103,10 +106,10 @@ fun PlayerScreen(
             startPositionMs = detail.viewOffset ?: 0,
         )
     }
-    val sync = remember(player) {
-        SyncViewModel(player, RelayClient(currentSettings.relayUrl, scope), scope)
-    }
+    val sync = remember(player) { SyncViewModel(player, relay, scope) }
     val connectionState by sync.connectionState.collectAsState()
+    val phase by sync.phase.collectAsState()
+    val waitingOn by sync.waitingOn.collectAsState()
     var controllerVisible by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
@@ -198,18 +201,30 @@ fun PlayerScreen(
                     keyEvent.key == Key.DirectionLeft ||
                     keyEvent.key == Key.DirectionRight
                 val controllerHidden = playerView?.isControllerFullyVisible == false
-                // Reveal only — never toggle playback here. A hidden
-                // controller should come back on any d-pad input, and the
-                // press that reveals it shouldn't also act on it; pausing
-                // needs a deliberate second press once the controls are
-                // visible and the play/pause button can actually take focus.
-                if ((isSelect || isDirectional) && keyEvent.type == KeyEventType.KeyDown &&
-                    keyEvent.nativeKeyEvent.repeatCount == 0 && controllerHidden
-                ) {
-                    playerView?.showController()
-                    true
-                } else {
-                    false
+                val isFreshKeyDown = keyEvent.type == KeyEventType.KeyDown &&
+                    keyEvent.nativeKeyEvent.repeatCount == 0
+                when {
+                    // Reveal-only first press, same for select or any
+                    // directional input — it shouldn't also act.
+                    !isFreshKeyDown || (!isSelect && !isDirectional) -> false
+                    controllerHidden -> {
+                        playerView?.showController()
+                        true
+                    }
+                    // Controller's already up: toggle play/pause ourselves
+                    // rather than letting the event fall through to the
+                    // native play/pause button. Same reason the old
+                    // single-press version did this manually — the button
+                    // never reliably takes real Android focus in this
+                    // Compose/AndroidView hybrid, so dispatch can't be
+                    // trusted to land on it. Directional keys still fall
+                    // through here (false) so the timebar's own key
+                    // listener keeps handling seeking as before.
+                    isSelect -> {
+                        player.playWhenReady = !player.playWhenReady
+                        true
+                    }
+                    else -> false
                 }
             }
             .focusable(),
@@ -298,6 +313,7 @@ fun PlayerScreen(
                 text = when (connectionState) {
                     ConnectionState.CONNECTING -> "Sync: connecting…"
                     ConnectionState.RECONNECTING -> "Sync: reconnecting…"
+                    ConnectionState.ROOM_FULL -> "Sync: room full"
                     else -> "Sync: off"
                 },
                 color = Color.White,
@@ -308,5 +324,20 @@ fun PlayerScreen(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
+        if (phase == PlaybackPhase.WAITING_FOR_PEERS && waitingOn.isNotEmpty()) {
+            Text(
+                text = "Waiting for the room to catch up…",
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(24.dp)
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+        ChatOverlay(
+            messages = sync.chatMessages,
+            modifier = Modifier.align(Alignment.BottomStart).padding(24.dp),
+        )
     }
 }

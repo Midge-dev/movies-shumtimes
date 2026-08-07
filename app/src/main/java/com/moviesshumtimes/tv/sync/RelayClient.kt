@@ -1,5 +1,6 @@
 package com.moviesshumtimes.tv.sync
 
+import com.moviesshumtimes.tv.data.settings.RelayIdentity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -8,52 +9,60 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 
-// username/avatarUrl are only populated for "presence"/"start" lobby
-// messages — playback events (play/pause/seek) leave them null. One shared
-// event shape keeps the relay's dumb-rebroadcast contract simple: it never
-// needs to know about message types, so lobby presence needed no server
-// changes at all.
-@Serializable
-data class SyncEvent(
-    val type: String,
-    val positionMs: Long = 0,
-    val sentAtEpochMs: Long = 0,
-    val username: String? = null,
-    val avatarUrl: String? = null,
-)
-
-enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
-
 private const val INITIAL_BACKOFF_MS = 1_000L
 private const val MAX_BACKOFF_MS = 30_000L
 
-// Thin client for the watch-together relay (relay/server.js): sends local
-// play/pause/seek events and surfaces whatever the relay forwards from the
-// other side. Connection failures are swallowed on purpose — sync is a
-// bonus on top of local playback, never something that should be able to
-// break watching a movie solo or when the relay is unreachable. Reconnects
-// automatically with exponential backoff until disconnect() is called.
-class RelayClient(private val relayUrl: String, private val scope: CoroutineScope) {
+// Thin transport client for the watch-together relay (relay/server.js):
+// speaks the hello/welcome/event/full envelope protocol, carries an
+// application-level RelayEvent inside every "event" message, and persists
+// the identity (peerId + reconnectToken) the relay uses to hand a
+// reconnecting device its own seat back — see RelayIdentityStore for why
+// that round-trips through the caller rather than living here.
+//
+// Connection failures are swallowed on purpose — sync is a bonus on top of
+// local playback, never something that should be able to break watching a
+// movie solo or when the relay is unreachable. Reconnects automatically
+// with exponential backoff until disconnect() is called.
+class RelayClient(
+    val relayUrl: String,
+    private var identity: RelayIdentity,
+    private val scope: CoroutineScope,
+    private val onIdentityUpdated: (RelayIdentity) -> Unit = {},
+) {
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
     private var webSocket: WebSocket? = null
     private var reconnectJob: Job? = null
     private var backoffMs = INITIAL_BACKOFF_MS
     private var manuallyDisconnected = false
+    private var lastRejectionWasFull = false
 
-    private val _events = MutableSharedFlow<SyncEvent>(extraBufferCapacity = 16)
-    val events: SharedFlow<SyncEvent> = _events
+    private val _events = MutableSharedFlow<RelayEvent>(extraBufferCapacity = 32)
+    val events: SharedFlow<RelayEvent> = _events
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState
+
+    // 0 = host, 1..N-1 = guest. Null until a "welcome" is received.
+    private val _seatIndex = MutableStateFlow<Int?>(null)
+    val seatIndex: StateFlow<Int?> = _seatIndex
+
+    val myPeerId: String get() = identity.peerId
 
     fun connect() {
         manuallyDisconnected = false
@@ -62,6 +71,7 @@ class RelayClient(private val relayUrl: String, private val scope: CoroutineScop
     }
 
     private fun attemptConnect() {
+        lastRejectionWasFull = false
         _connectionState.value = ConnectionState.CONNECTING
         val request = Request.Builder().url(relayUrl).build()
         webSocket = client.newWebSocket(
@@ -69,28 +79,59 @@ class RelayClient(private val relayUrl: String, private val scope: CoroutineScop
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     backoffMs = INITIAL_BACKOFF_MS
-                    _connectionState.value = ConnectionState.CONNECTED
+                    val hello = buildJsonObject {
+                        put("type", "hello")
+                        put("role", "device")
+                        put("peerId", identity.peerId)
+                        identity.reconnectToken?.let { put("reconnectToken", it) }
+                    }
+                    webSocket.send(hello.toString())
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
-                    runCatching { json.decodeFromString(SyncEvent.serializer(), text) }
-                        .onSuccess { _events.tryEmit(it) }
+                    handleFrame(text)
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    _seatIndex.value = null
                     scheduleReconnect()
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    _seatIndex.value = null
                     scheduleReconnect()
                 }
             },
         )
     }
 
+    private fun handleFrame(text: String) {
+        val root = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
+        when (root["type"]?.jsonPrimitive?.contentOrNull) {
+            "welcome" -> {
+                val newToken = root["reconnectToken"]?.jsonPrimitive?.contentOrNull
+                if (newToken != null && newToken != identity.reconnectToken) {
+                    identity = identity.copy(reconnectToken = newToken)
+                    onIdentityUpdated(identity)
+                }
+                _seatIndex.value = root["seatIndex"]?.jsonPrimitive?.intOrNull
+                _connectionState.value = ConnectionState.CONNECTED
+            }
+            "full" -> {
+                lastRejectionWasFull = true
+                _connectionState.value = ConnectionState.ROOM_FULL
+            }
+            "event" -> {
+                val payload = root["payload"] ?: return
+                runCatching { json.decodeFromJsonElement<RelayEvent>(payload) }
+                    .onSuccess { _events.tryEmit(it) }
+            }
+        }
+    }
+
     private fun scheduleReconnect() {
         if (manuallyDisconnected) return
-        _connectionState.value = ConnectionState.RECONNECTING
+        _connectionState.value = if (lastRejectionWasFull) ConnectionState.ROOM_FULL else ConnectionState.RECONNECTING
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             delay(backoffMs)
@@ -99,9 +140,12 @@ class RelayClient(private val relayUrl: String, private val scope: CoroutineScop
         }
     }
 
-    fun send(type: String, positionMs: Long = 0, username: String? = null, avatarUrl: String? = null) {
-        val event = SyncEvent(type, positionMs, System.currentTimeMillis(), username, avatarUrl)
-        runCatching { webSocket?.send(json.encodeToString(SyncEvent.serializer(), event)) }
+    fun send(event: RelayEvent) {
+        val envelope = buildJsonObject {
+            put("type", "event")
+            put("payload", json.encodeToJsonElement(event))
+        }
+        runCatching { webSocket?.send(envelope.toString()) }
     }
 
     fun disconnect() {
@@ -109,6 +153,7 @@ class RelayClient(private val relayUrl: String, private val scope: CoroutineScop
         reconnectJob?.cancel()
         webSocket?.close(1000, "done")
         webSocket = null
+        _seatIndex.value = null
         _connectionState.value = ConnectionState.DISCONNECTED
     }
 }

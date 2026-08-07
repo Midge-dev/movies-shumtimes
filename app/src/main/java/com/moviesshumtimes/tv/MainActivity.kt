@@ -44,7 +44,10 @@ import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.plex.PlexServerApi
 import com.moviesshumtimes.tv.data.plex.TokenStore
+import com.moviesshumtimes.tv.data.settings.RelayIdentity
+import com.moviesshumtimes.tv.data.settings.RelayIdentityStore
 import com.moviesshumtimes.tv.data.settings.SettingsStore
+import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
@@ -132,8 +135,21 @@ private sealed interface AppState {
     ) : AppState
     // returnState lets Lobby/Player hand navigation back to wherever the
     // user actually came from — a movie's detail screen, or an episode list.
-    data class Lobby(val server: PlexServer, val detail: PlexMovieDetail, val returnState: AppState) : AppState
-    data class Player(val server: PlexServer, val detail: PlexMovieDetail, val returnState: AppState) : AppState
+    // relay is shared across the Lobby -> Player transition (and back) so
+    // the connection — and any active chat — doesn't reconnect on every
+    // screen change; see AppRoot's ensureRelayClient.
+    data class Lobby(
+        val server: PlexServer,
+        val detail: PlexMovieDetail,
+        val returnState: AppState,
+        val relay: RelayClient,
+    ) : AppState
+    data class Player(
+        val server: PlexServer,
+        val detail: PlexMovieDetail,
+        val returnState: AppState,
+        val relay: RelayClient,
+    ) : AppState
 }
 
 @Composable
@@ -144,6 +160,37 @@ private fun AppRoot() {
     var clientIdentifier by remember { mutableStateOf("") }
     var localAccount by remember { mutableStateOf<PlexAccount?>(null) }
     var accountToken by remember { mutableStateOf<String?>(null) }
+
+    var relayIdentity by remember { mutableStateOf<RelayIdentity?>(null) }
+    var relayClient by remember { mutableStateOf<RelayClient?>(null) }
+
+    // Lazily creates (or reuses) the shared watch-together connection when
+    // entering the Lobby/Player flow, and released explicitly wherever that
+    // flow is exited back to browsing (see onBack/onExit below) — reconnect
+    // tokens make reconnecting cheap and safe now, so there's no reason to
+    // hold the socket open for the whole browsing session too.
+    suspend fun ensureRelayClient(): RelayClient {
+        relayClient?.let { return it }
+        val settings = SettingsStore.observe(context).first()
+        val identity = relayIdentity ?: RelayIdentityStore.load(context).also { relayIdentity = it }
+        val newClient = RelayClient(
+            relayUrl = settings.relayUrl,
+            identity = identity,
+            scope = scope,
+            onIdentityUpdated = { updated ->
+                relayIdentity = updated
+                scope.launch { updated.reconnectToken?.let { RelayIdentityStore.saveReconnectToken(context, it) } }
+            },
+        )
+        newClient.connect()
+        relayClient = newClient
+        return newClient
+    }
+
+    fun releaseRelayClient() {
+        relayClient?.disconnect()
+        relayClient = null
+    }
 
     suspend fun connect(token: String) {
         accountToken = token
@@ -224,7 +271,7 @@ private fun AppRoot() {
                     } else {
                         val fetched = runCatching { serverApi.fetchMovieDetail(current.movie.ratingKey) }
                         state = fetched.fold(
-                            onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current) },
+                            onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current, ensureRelayClient()) },
                             onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                         )
                     }
@@ -261,7 +308,7 @@ private fun AppRoot() {
                         PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
                     }
                     state = fetched.fold(
-                        onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current) },
+                        onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current, ensureRelayClient()) },
                         onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                     )
                 }
@@ -273,8 +320,12 @@ private fun AppRoot() {
                 detail = current.detail,
                 localUsername = localAccount?.username ?: "You",
                 localAvatarUrl = localAccount?.thumb,
-                onStart = { state = AppState.Player(current.server, current.detail, current.returnState) },
-                onBack = { state = current.returnState },
+                relay = current.relay,
+                onStart = { state = AppState.Player(current.server, current.detail, current.returnState, current.relay) },
+                onBack = {
+                    releaseRelayClient()
+                    state = current.returnState
+                },
             )
         }
         is AppState.Player -> key(current.detail.ratingKey) {
@@ -282,7 +333,11 @@ private fun AppRoot() {
                 server = current.server,
                 detail = current.detail,
                 clientIdentifier = clientIdentifier,
-                onExit = { state = current.returnState },
+                relay = current.relay,
+                onExit = {
+                    releaseRelayClient()
+                    state = current.returnState
+                },
             )
         }
     }
