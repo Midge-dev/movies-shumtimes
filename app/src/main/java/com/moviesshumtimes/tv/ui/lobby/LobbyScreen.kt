@@ -181,7 +181,7 @@ fun LobbyScreen(
 
         ChatOverlay(
             messages = chatMessages,
-            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).padding(24.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth(0.5f).padding(24.dp),
         )
 
         if (showChatModal) {

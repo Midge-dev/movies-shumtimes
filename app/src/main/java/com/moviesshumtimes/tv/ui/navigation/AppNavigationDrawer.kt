@@ -17,10 +17,13 @@ import androidx.tv.material3.DrawerValue
 import androidx.tv.material3.Icon
 import androidx.tv.material3.NavigationDrawer
 import androidx.tv.material3.NavigationDrawerItem
+import androidx.tv.material3.NavigationDrawerItemDefaults
 import androidx.tv.material3.Text
 import androidx.tv.material3.rememberDrawerState
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.ui.theme.AppSurface
+import com.moviesshumtimes.tv.ui.theme.NeonPurple
+import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
 private const val SECTION_TYPE_SHOW = "show"
 
@@ -42,6 +45,19 @@ fun AppNavigationDrawer(
     content: @Composable () -> Unit,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // Same two-tone treatment as buttons/cards elsewhere: the focused fill
+    // is the deeper NeonPurple with the glow tone on top for the icon and
+    // label (content color propagates to the leading Icon automatically),
+    // and a persistent, subtler purple tint marks whichever section is
+    // currently selected even when it doesn't have focus.
+    val itemColors = NavigationDrawerItemDefaults.colors(
+        focusedContainerColor = NeonPurple,
+        focusedContentColor = NeonPurpleGlow,
+        selectedContainerColor = NeonPurple.copy(alpha = 0.35f),
+        selectedContentColor = NeonPurple,
+        focusedSelectedContainerColor = NeonPurple,
+        focusedSelectedContentColor = NeonPurpleGlow,
+    )
 
     NavigationDrawer(
         drawerState = drawerState,
@@ -57,6 +73,7 @@ fun AppNavigationDrawer(
                     NavigationDrawerItem(
                         selected = !isSettingsSelected && section.key == selectedSectionKey,
                         onClick = { onSelectSection(section) },
+                        colors = itemColors,
                         leadingContent = {
                             Icon(
                                 imageVector = if (section.type == SECTION_TYPE_SHOW) Icons.Default.Tv else Icons.Default.Movie,
@@ -71,6 +88,7 @@ fun AppNavigationDrawer(
                 NavigationDrawerItem(
                     selected = isSettingsSelected,
                     onClick = onOpenSettings,
+                    colors = itemColors,
                     leadingContent = { Icon(imageVector = Icons.Default.Settings, contentDescription = null) },
                 ) {
                     Text("Settings")

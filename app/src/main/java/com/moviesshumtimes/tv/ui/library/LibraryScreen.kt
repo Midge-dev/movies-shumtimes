@@ -285,7 +285,10 @@ private fun LibraryPoster(server: PlexServer, item: PlexLibraryItem, onClick: ()
             }
         },
         title = {
-            Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // StandardCardContainer's default gap between the bordered image
+            // and the title below it is too tight for our thicker focus
+            // border — the title visually collides with it when focused.
+            Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
         },
     )
 }

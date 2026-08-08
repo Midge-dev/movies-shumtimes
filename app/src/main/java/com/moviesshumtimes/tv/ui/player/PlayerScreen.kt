@@ -339,7 +339,7 @@ fun PlayerScreen(
         }
         ChatOverlay(
             messages = sync.chatMessages,
-            modifier = Modifier.align(Alignment.BottomStart).padding(24.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
         )
     }
 }

@@ -79,7 +79,7 @@ private fun SeasonPoster(server: PlexServer, season: PlexSeason, onClick: () -> 
             }
         },
         title = {
-            Text(text = season.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = season.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
         },
     )
 }

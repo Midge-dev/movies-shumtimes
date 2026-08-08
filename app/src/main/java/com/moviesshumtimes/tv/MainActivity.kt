@@ -206,6 +206,13 @@ private fun AppRoot() {
     // in-Library tab row it replaced — always lands back on Library, since
     // that's the one screen that actually renders a section's items.
     fun selectSection(ctx: LibraryContext, section: PlexSection) {
+        if (section.key == ctx.selectedSection.key) {
+            // ctx.items is already this section's data — no need to hit the
+            // network again just to jump back to Library from wherever the
+            // nav drawer was clicked.
+            state = AppState.Library(ctx)
+            return
+        }
         scope.launch {
             val items = runCatching {
                 PlexServerApi(ctx.server, clientIdentifier).fetchLibraryItems(section.key)
