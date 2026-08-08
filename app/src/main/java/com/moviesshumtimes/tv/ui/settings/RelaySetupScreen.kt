@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.pairing.PairingServer
 import com.moviesshumtimes.tv.data.settings.SettingsStore
@@ -155,15 +156,12 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                         Text("Scan with your phone (same Wi-Fi as the TV), or visit:")
                         Text(pairingUrl!!, style = MaterialTheme.typography.bodyLarge)
                         Text("Paste the relay URL there and it'll appear here automatically.")
-                        Button(
+                        OutlinedButton(
                             onClick = {
                                 pairingServer?.stop()
                                 pairingServer = null
                                 pairingUrl = null
                             },
-                            colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                            border = neonPurpleButtonBorder(),
-                            glow = neonPurpleButtonGlow(),
                             modifier = Modifier
                                 .focusRequester(cancelPairingFocus)
                                 .focusProperties {
@@ -194,11 +192,8 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                     Text("Save & continue")
                 }
 
-                Button(
+                OutlinedButton(
                     onClick = onDone,
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
                     modifier = Modifier.focusRequester(skipFocus).focusProperties { up = saveFocus },
                 ) {
                     Text("Skip for now")

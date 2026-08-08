@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -21,10 +19,13 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.tv.material3.WideCardContainer
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexEpisode
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
+import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
 
 @Composable
 fun ShowEpisodesScreen(
@@ -56,26 +57,28 @@ fun ShowEpisodesScreen(
 
 @Composable
 private fun EpisodeRow(server: PlexServer, episode: PlexEpisode, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(12.dp)) {
-            AsyncImage(
-                model = PlexImageUrl.of(server, episode.thumb),
-                contentDescription = episode.title,
-                contentScale = ContentScale.Crop,
+    val heading = episode.index?.let { "${it}. ${episode.title}" } ?: episode.title
+    WideCardContainer(
+        modifier = Modifier.fillMaxWidth(),
+        imageCard = { interactionSource ->
+            Card(
+                onClick = onClick,
+                interactionSource = interactionSource,
+                border = neonPurpleCardBorder(),
+                glow = neonPurpleCardGlow(),
                 modifier = Modifier.width(160.dp).height(90.dp),
-            )
-            Column(modifier = Modifier.padding(start = 16.dp)) {
-                val heading = episode.index?.let { "${it}. ${episode.title}" } ?: episode.title
-                Text(text = heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                episode.summary?.let { summary ->
-                    Text(
-                        text = summary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
+            ) {
+                AsyncImage(
+                    model = PlexImageUrl.of(server, episode.thumb),
+                    contentDescription = episode.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
-        }
-    }
+        },
+        title = { Text(text = heading, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        description = {
+            episode.summary?.let { summary -> Text(text = summary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        },
+    )
 }

@@ -19,11 +19,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.StandardCardContainer
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexSeason
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
+import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
 
 @Composable
 fun ShowSeasonsScreen(
@@ -57,22 +60,26 @@ fun ShowSeasonsScreen(
 
 @Composable
 private fun SeasonPoster(server: PlexServer, season: PlexSeason, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.width(160.dp)) {
-        Column {
-            AsyncImage(
-                model = PlexImageUrl.of(server, season.thumb),
-                contentDescription = season.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f),
-            )
-            Text(
-                text = season.title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(8.dp),
-            )
-        }
-    }
+    StandardCardContainer(
+        modifier = Modifier.width(160.dp),
+        imageCard = { interactionSource ->
+            Card(
+                onClick = onClick,
+                interactionSource = interactionSource,
+                border = neonPurpleCardBorder(),
+                glow = neonPurpleCardGlow(),
+                modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+            ) {
+                AsyncImage(
+                    model = PlexImageUrl.of(server, season.thumb),
+                    contentDescription = season.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        },
+        title = {
+            Text(text = season.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+    )
 }

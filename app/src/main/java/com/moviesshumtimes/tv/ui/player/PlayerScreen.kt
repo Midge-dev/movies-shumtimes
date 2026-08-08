@@ -55,6 +55,7 @@ import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.SyncViewModel
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
+import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -203,28 +204,22 @@ fun PlayerScreen(
                 val controllerHidden = playerView?.isControllerFullyVisible == false
                 val isFreshKeyDown = keyEvent.type == KeyEventType.KeyDown &&
                     keyEvent.nativeKeyEvent.repeatCount == 0
-                when {
-                    // Reveal-only first press, same for select or any
-                    // directional input — it shouldn't also act.
-                    !isFreshKeyDown || (!isSelect && !isDirectional) -> false
-                    controllerHidden -> {
-                        playerView?.showController()
-                        true
-                    }
-                    // Controller's already up: toggle play/pause ourselves
-                    // rather than letting the event fall through to the
-                    // native play/pause button. Same reason the old
-                    // single-press version did this manually — the button
-                    // never reliably takes real Android focus in this
-                    // Compose/AndroidView hybrid, so dispatch can't be
-                    // trusted to land on it. Directional keys still fall
-                    // through here (false) so the timebar's own key
-                    // listener keeps handling seeking as before.
-                    isSelect -> {
-                        player.playWhenReady = !player.playWhenReady
-                        true
-                    }
-                    else -> false
+                // Reveal-only, and only while hidden. A previous version of
+                // this also hijacked Select once the controller was already
+                // visible to toggle play/pause directly, on the theory that
+                // native dispatch couldn't be trusted to reach the focused
+                // button — that was wrong, and it broke every other button
+                // in the controller (settings, prev/next): whatever had
+                // focus, Select just toggled playback instead of activating
+                // it. Once visible, every key falls through (false) to
+                // native dispatch, which already correctly routes to
+                // whatever's focused — that's how seeking via the timebar's
+                // own key listener has worked the whole time.
+                if (isFreshKeyDown && (isSelect || isDirectional) && controllerHidden) {
+                    playerView?.showController()
+                    true
+                } else {
+                    false
                 }
             }
             .focusable(),
@@ -270,8 +265,15 @@ fun PlayerScreen(
                         }
                     }
                     findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
+                        // DefaultTimeBar has no gradient-stroke concept like
+                        // the Compose two-tone borders elsewhere, so the
+                        // two-tone treatment here is the played fill in the
+                        // deeper NeonPurple with the scrubber (the focal,
+                        // "active" point) in the lighter NeonPurpleGlow —
+                        // same pairing, closest equivalent this component
+                        // supports.
                         setPlayedColor(NeonPurple.toArgb())
-                        setScrubberColor(NeonPurple.toArgb())
+                        setScrubberColor(NeonPurpleGlow.toArgb())
                         setOnKeyListener { _, keyCode, event ->
                             if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
                             val direction = when (keyCode) {

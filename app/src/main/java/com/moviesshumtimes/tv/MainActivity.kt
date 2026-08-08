@@ -54,6 +54,7 @@ import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
 import com.moviesshumtimes.tv.ui.library.ShowEpisodesScreen
 import com.moviesshumtimes.tv.ui.library.ShowSeasonsScreen
 import com.moviesshumtimes.tv.ui.lobby.LobbyScreen
+import com.moviesshumtimes.tv.ui.navigation.AppNavigationDrawer
 import com.moviesshumtimes.tv.ui.player.PlayerScreen
 import com.moviesshumtimes.tv.ui.settings.RelaySetupScreen
 import com.moviesshumtimes.tv.ui.settings.SettingsScreen
@@ -201,6 +202,18 @@ private fun AppRoot() {
         relayClient = null
     }
 
+    // Shared by both the nav drawer (any browsing screen) and the old
+    // in-Library tab row it replaced — always lands back on Library, since
+    // that's the one screen that actually renders a section's items.
+    fun selectSection(ctx: LibraryContext, section: PlexSection) {
+        scope.launch {
+            val items = runCatching {
+                PlexServerApi(ctx.server, clientIdentifier).fetchLibraryItems(section.key)
+            }.getOrElse { emptyList() }
+            state = AppState.Library(ctx.copy(selectedSection = section, items = items))
+        }
+    }
+
     suspend fun connect(token: String) {
         accountToken = token
         clientIdentifier = PlexIdentity.getOrCreateClientIdentifier(context)
@@ -241,53 +254,126 @@ private fun AppRoot() {
         is AppState.LoggedOut -> AuthScreen(onLoggedIn = { token -> scope.launch { connect(token) } })
         is AppState.Error -> Text("Error: ${current.message}")
         is AppState.RelaySetup -> RelaySetupScreen(onDone = { state = AppState.Library(current.ctx) })
-        is AppState.Library -> LibraryScreen(
-            server = current.ctx.server,
+        is AppState.Library -> AppNavigationDrawer(
             sections = current.ctx.sections,
-            selectedSection = current.ctx.selectedSection,
-            items = current.ctx.items,
-            onSelectSection = { section ->
-                scope.launch {
-                    val items = runCatching {
-                        PlexServerApi(current.ctx.server, clientIdentifier).fetchLibraryItems(section.key)
-                    }.getOrElse { emptyList() }
-                    state = AppState.Library(current.ctx.copy(selectedSection = section, items = items))
-                }
-            },
-            onSelectItem = { item -> state = AppState.MovieDetail(current.ctx, item) },
+            selectedSectionKey = current.ctx.selectedSection.key,
+            isSettingsSelected = false,
+            onSelectSection = { section -> selectSection(current.ctx, section) },
             onOpenSettings = { state = AppState.Settings(current.ctx) },
-        )
-        is AppState.Settings -> SettingsScreen(
-            accountToken = accountToken ?: "",
-            clientIdentifier = clientIdentifier,
-            onBack = { state = AppState.Library(current.ctx) },
-            onSaved = {
-                val token = accountToken
-                if (token != null) scope.launch { connect(token) } else state = AppState.Library(current.ctx)
-            },
-        )
-        is AppState.MovieDetail -> MovieDetailScreen(
-            server = current.ctx.server,
-            movie = current.movie,
-            isShow = current.ctx.selectedSection.type == SECTION_TYPE_SHOW,
-            onBack = { state = AppState.Library(current.ctx) },
-            onPlay = {
-                scope.launch {
-                    val serverApi = PlexServerApi(current.ctx.server, clientIdentifier)
-                    if (current.ctx.selectedSection.type == SECTION_TYPE_SHOW) {
-                        val fetched = runCatching { serverApi.fetchSeasons(current.movie.ratingKey) }
+        ) {
+            LibraryScreen(
+                server = current.ctx.server,
+                selectedSection = current.ctx.selectedSection,
+                items = current.ctx.items,
+                onSelectItem = { item -> state = AppState.MovieDetail(current.ctx, item) },
+            )
+        }
+        is AppState.Settings -> AppNavigationDrawer(
+            sections = current.ctx.sections,
+            selectedSectionKey = current.ctx.selectedSection.key,
+            isSettingsSelected = true,
+            onSelectSection = { section -> selectSection(current.ctx, section) },
+            onOpenSettings = {},
+        ) {
+            SettingsScreen(
+                accountToken = accountToken ?: "",
+                clientIdentifier = clientIdentifier,
+                onBack = { state = AppState.Library(current.ctx) },
+                onSaved = {
+                    val token = accountToken
+                    if (token != null) scope.launch { connect(token) } else state = AppState.Library(current.ctx)
+                },
+            )
+        }
+        is AppState.MovieDetail -> AppNavigationDrawer(
+            sections = current.ctx.sections,
+            selectedSectionKey = current.ctx.selectedSection.key,
+            isSettingsSelected = false,
+            onSelectSection = { section -> selectSection(current.ctx, section) },
+            onOpenSettings = { state = AppState.Settings(current.ctx) },
+        ) {
+            MovieDetailScreen(
+                server = current.ctx.server,
+                movie = current.movie,
+                isShow = current.ctx.selectedSection.type == SECTION_TYPE_SHOW,
+                onBack = { state = AppState.Library(current.ctx) },
+                onPlay = {
+                    scope.launch {
+                        val serverApi = PlexServerApi(current.ctx.server, clientIdentifier)
+                        if (current.ctx.selectedSection.type == SECTION_TYPE_SHOW) {
+                            val fetched = runCatching { serverApi.fetchSeasons(current.movie.ratingKey) }
+                            state = fetched.fold(
+                                onSuccess = { seasons -> AppState.ShowSeasons(current.ctx, current.movie, seasons) },
+                                onFailure = { AppState.Error(it.message ?: "Couldn't load seasons") },
+                            )
+                        } else {
+                            val fetched = runCatching { serverApi.fetchMovieDetail(current.movie.ratingKey) }
+                            state = fetched.fold(
+                                onSuccess = { detail ->
+                                    val relay = ensureRelayClient()
+                                    // No relay configured means no one to wait for —
+                                    // skip the Lobby's waiting room and go straight
+                                    // to solo playback.
+                                    if (relay != null) {
+                                        AppState.Lobby(current.ctx.server, detail, current, relay)
+                                    } else {
+                                        AppState.Player(current.ctx.server, detail, current, relay)
+                                    }
+                                },
+                                onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
+                            )
+                        }
+                    }
+                },
+            )
+        }
+        is AppState.ShowSeasons -> AppNavigationDrawer(
+            sections = current.ctx.sections,
+            selectedSectionKey = current.ctx.selectedSection.key,
+            isSettingsSelected = false,
+            onSelectSection = { section -> selectSection(current.ctx, section) },
+            onOpenSettings = { state = AppState.Settings(current.ctx) },
+        ) {
+            ShowSeasonsScreen(
+                server = current.ctx.server,
+                showTitle = current.show.title,
+                seasons = current.seasons,
+                onSelect = { season ->
+                    scope.launch {
+                        val fetched = runCatching {
+                            PlexServerApi(current.ctx.server, clientIdentifier).fetchEpisodes(season.ratingKey)
+                        }
                         state = fetched.fold(
-                            onSuccess = { seasons -> AppState.ShowSeasons(current.ctx, current.movie, seasons) },
-                            onFailure = { AppState.Error(it.message ?: "Couldn't load seasons") },
+                            onSuccess = { episodes ->
+                                AppState.ShowEpisodes(current.ctx, current.show, current.seasons, season, episodes)
+                            },
+                            onFailure = { AppState.Error(it.message ?: "Couldn't load episodes") },
                         )
-                    } else {
-                        val fetched = runCatching { serverApi.fetchMovieDetail(current.movie.ratingKey) }
+                    }
+                },
+                onBack = { state = AppState.MovieDetail(current.ctx, current.show) },
+            )
+        }
+        is AppState.ShowEpisodes -> AppNavigationDrawer(
+            sections = current.ctx.sections,
+            selectedSectionKey = current.ctx.selectedSection.key,
+            isSettingsSelected = false,
+            onSelectSection = { section -> selectSection(current.ctx, section) },
+            onOpenSettings = { state = AppState.Settings(current.ctx) },
+        ) {
+            ShowEpisodesScreen(
+                server = current.ctx.server,
+                showTitle = current.show.title,
+                seasonTitle = current.season.title,
+                episodes = current.episodes,
+                onSelect = { episode ->
+                    scope.launch {
+                        val fetched = runCatching {
+                            PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
+                        }
                         state = fetched.fold(
                             onSuccess = { detail ->
                                 val relay = ensureRelayClient()
-                                // No relay configured means no one to wait for —
-                                // skip the Lobby's waiting room and go straight
-                                // to solo playback.
                                 if (relay != null) {
                                     AppState.Lobby(current.ctx.server, detail, current, relay)
                                 } else {
@@ -297,53 +383,10 @@ private fun AppRoot() {
                             onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                         )
                     }
-                }
-            },
-        )
-        is AppState.ShowSeasons -> ShowSeasonsScreen(
-            server = current.ctx.server,
-            showTitle = current.show.title,
-            seasons = current.seasons,
-            onSelect = { season ->
-                scope.launch {
-                    val fetched = runCatching {
-                        PlexServerApi(current.ctx.server, clientIdentifier).fetchEpisodes(season.ratingKey)
-                    }
-                    state = fetched.fold(
-                        onSuccess = { episodes ->
-                            AppState.ShowEpisodes(current.ctx, current.show, current.seasons, season, episodes)
-                        },
-                        onFailure = { AppState.Error(it.message ?: "Couldn't load episodes") },
-                    )
-                }
-            },
-            onBack = { state = AppState.MovieDetail(current.ctx, current.show) },
-        )
-        is AppState.ShowEpisodes -> ShowEpisodesScreen(
-            server = current.ctx.server,
-            showTitle = current.show.title,
-            seasonTitle = current.season.title,
-            episodes = current.episodes,
-            onSelect = { episode ->
-                scope.launch {
-                    val fetched = runCatching {
-                        PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
-                    }
-                    state = fetched.fold(
-                        onSuccess = { detail ->
-                            val relay = ensureRelayClient()
-                            if (relay != null) {
-                                AppState.Lobby(current.ctx.server, detail, current, relay)
-                            } else {
-                                AppState.Player(current.ctx.server, detail, current, relay)
-                            }
-                        },
-                        onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
-                    )
-                }
-            },
-            onBack = { state = AppState.ShowSeasons(current.ctx, current.show, current.seasons) },
-        )
+                },
+                onBack = { state = AppState.ShowSeasons(current.ctx, current.show, current.seasons) },
+            )
+        }
         is AppState.Lobby -> key(current.detail.ratingKey) {
             LobbyScreen(
                 detail = current.detail,

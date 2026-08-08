@@ -32,6 +32,18 @@ android {
     }
 }
 
+// Several tv-material3 components used throughout the UI (FilterChip, Switch,
+// ListItem, NavigationDrawer, CardContainer, ...) are marked
+// @ExperimentalTvMaterial3Api — opting in once here beats annotating every
+// call site across a dozen files. AGP 9's built-in Kotlin support (no
+// org.jetbrains.kotlin.android plugin) means the classic android.kotlinOptions
+// DSL isn't available — configuring the KotlinCompile tasks directly instead.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        freeCompilerArgs.add("-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api")
+    }
+}
+
 // The Gradle module is named "app" (see settings.gradle.kts), so the APK
 // would otherwise default to app-debug.apk/app-release.apk — override it to
 // something recognizable for whoever's downloading it to sideload.
@@ -49,6 +61,7 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
+    implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.tv.foundation)

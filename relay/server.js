@@ -218,13 +218,21 @@ wss.on('close', () => clearInterval(heartbeatInterval));
 const CHAT_PAGE_HTML = `<!doctype html>
 <html><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>Movies Shumtimes — Chat</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    /* interactive-widget=resizes-content (above) makes the visual viewport
+       actually shrink when the on-screen keyboard opens, instead of the
+       keyboard just overlaying fixed content — 100dvh (falls back to 100vh
+       on browsers that don't know the unit) means this flex column
+       recalculates to that shorter height, so the input at the bottom
+       stays pinned above the keyboard like a texting app instead of
+       getting covered by it. */
+    margin: 0; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
     background: #0D0D12; color: #F2F2F5; font-family: -apple-system, system-ui, sans-serif;
   }
   header { padding: 16px 20px; border-bottom: 1px solid #2A2A33; }
@@ -291,7 +299,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
       ws.onerror = () => ws.close();
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'event' && msg.payload && msg.payload.type === 'chat') {
+        if (msg.type === 'event' && msg.payload && msg.payload.kind === 'chat') {
           appendLine(msg.payload.username || 'them', msg.payload.text || '');
         }
       };
@@ -302,7 +310,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
       e.preventDefault();
       const text = textInput.value.trim();
       if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'event', payload: { type: 'chat', username, text } }));
+      ws.send(JSON.stringify({ type: 'event', payload: { kind: 'chat', username, text } }));
       appendLine('you', text);
       textInput.value = '';
     });

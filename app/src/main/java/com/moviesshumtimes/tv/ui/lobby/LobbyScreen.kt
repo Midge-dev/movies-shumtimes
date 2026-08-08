@@ -35,6 +35,9 @@ import androidx.activity.compose.BackHandler
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.OutlinedButton
+import androidx.tv.material3.Surface
+import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.R
@@ -210,11 +213,12 @@ private fun ChatQrModal(relayUrl: String, onDismiss: () -> Unit) {
         modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)),
         contentAlignment = Alignment.Center,
     ) {
+        Surface(
+            modifier = Modifier.widthIn(max = 560.dp).padding(vertical = 24.dp),
+            colors = SurfaceDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        ) {
         Column(
             modifier = Modifier
-                .widthIn(max = 560.dp)
-                .padding(vertical = 24.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .verticalScroll(rememberScrollState())
                 .padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -240,15 +244,16 @@ private fun ChatQrModal(relayUrl: String, onDismiss: () -> Unit) {
                 Text(chatUrl, color = Color.White, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
             }
 
-            Button(
+            // Secondary/dismiss action — OutlinedButton reads as lower
+            // emphasis than the solid NeonPurple buttons used for primary
+            // actions elsewhere (Start, Save & continue).
+            OutlinedButton(
                 onClick = onDismiss,
-                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                border = neonPurpleButtonBorder(),
-                glow = neonPurpleButtonGlow(),
                 modifier = Modifier.padding(top = 28.dp).focusRequester(closeFocusRequester),
             ) {
                 Text("Close")
             }
+        }
         }
     }
 }

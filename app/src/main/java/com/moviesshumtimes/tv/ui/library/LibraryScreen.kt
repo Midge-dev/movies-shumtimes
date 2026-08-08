@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -41,7 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
+import androidx.tv.material3.FilterChip
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.StandardCardContainer
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
@@ -52,16 +53,15 @@ import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
+import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
+import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
 
 @Composable
 fun LibraryScreen(
     server: PlexServer,
-    sections: List<PlexSection>,
     selectedSection: PlexSection,
     items: List<PlexLibraryItem>,
-    onSelectSection: (PlexSection) -> Unit,
     onSelectItem: (PlexLibraryItem) -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     var query by remember(selectedSection.key) { mutableStateOf("") }
     var sortMode by remember(selectedSection.key) { mutableStateOf(SortMode.TITLE) }
@@ -90,31 +90,6 @@ fun LibraryScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.weight(1f)) {
-                    items(sections, key = { it.key }) { section ->
-                        val selected = section.key == selectedSection.key
-                        Button(
-                            onClick = { onSelectSection(section) },
-                            colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                            border = neonPurpleButtonBorder(),
-                            glow = neonPurpleButtonGlow(),
-                        ) {
-                            Text(if (selected) "[${section.title}]" else section.title)
-                        }
-                    }
-                }
-                Button(
-                    onClick = onOpenSettings,
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
-                ) { Text("Settings") }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp).padding(bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -281,35 +256,36 @@ private fun FilterSectionHeader(label: String) {
 
 @Composable
 private fun FilterOptionRow(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-        border = neonPurpleButtonBorder(),
-        glow = neonPurpleButtonGlow(),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Text(if (selected) "[$label]" else label)
+    // FilterChip carries its own selected-state affordance (a leading
+    // checkmark) — no need for the old "[bracket]" text hack to show which
+    // option is active.
+    FilterChip(selected = selected, onClick = onClick, modifier = modifier.fillMaxWidth()) {
+        Text(label)
     }
 }
 
 @Composable
 private fun LibraryPoster(server: PlexServer, item: PlexLibraryItem, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.width(160.dp)) {
-        Column {
-            AsyncImage(
-                model = PlexImageUrl.of(server, item.thumb),
-                contentDescription = item.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f),
-            )
-            Text(
-                text = item.title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(8.dp),
-            )
-        }
-    }
+    StandardCardContainer(
+        modifier = Modifier.width(160.dp),
+        imageCard = { interactionSource ->
+            Card(
+                onClick = onClick,
+                interactionSource = interactionSource,
+                border = neonPurpleCardBorder(),
+                glow = neonPurpleCardGlow(),
+                modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+            ) {
+                AsyncImage(
+                    model = PlexImageUrl.of(server, item.thumb),
+                    contentDescription = item.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        },
+        title = {
+            Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+    )
 }

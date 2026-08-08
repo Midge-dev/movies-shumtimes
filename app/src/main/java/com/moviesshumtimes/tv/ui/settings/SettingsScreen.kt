@@ -27,7 +27,6 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
@@ -40,9 +39,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.FilterChip
+import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.RadioButton
-import androidx.tv.material3.RadioButtonDefaults
+import androidx.tv.material3.Switch
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.pairing.PairingServer
 import com.moviesshumtimes.tv.data.plex.PlexResource
@@ -53,7 +55,6 @@ import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
-import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import kotlinx.coroutines.flow.first
@@ -136,47 +137,24 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                     sourcesError != null -> Text("Couldn't load sources: $sourcesError")
                     sources.isEmpty() -> Text("No sources found")
                     else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // ListItem handles its own focused/selected contrast,
+                        // unlike the old Button+RadioButton combo which needed
+                        // manually tracking focus to swap the radio's colors
+                        // so it didn't blend into the button's focus fill.
                         sources.forEachIndexed { index, source ->
                             val selected = settings.selectedServerId == source.machineIdentifier
-                            var rowFocused by remember { mutableStateOf(false) }
-                            Button(
+                            ListItem(
+                                selected = selected,
                                 onClick = { settings = settings.copy(selectedServerId = source.machineIdentifier) },
-                                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                                border = neonPurpleButtonBorder(),
-                                glow = neonPurpleButtonGlow(),
+                                headlineContent = { Text("${source.name}${if (source.owned) " (owned)" else ""}") },
+                                leadingContent = { RadioButton(selected = selected, onClick = null) },
                                 modifier = Modifier
-                                    .onFocusChanged { rowFocused = it.isFocused }
                                     .focusRequester(sourceFocuses[index])
                                     .focusProperties {
                                         up = if (index > 0) sourceFocuses[index - 1] else FocusRequester.Default
                                         down = if (index < sourceFocuses.lastIndex) sourceFocuses[index + 1] else relayUrlFocus
                                     },
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    // The radio's own two-tone purple blends into the
-                                    // button's NeonPurple focusedContainerColor, so swap
-                                    // to a dark color while this row is focused instead.
-                                    RadioButton(
-                                        selected = selected,
-                                        onClick = null,
-                                        colors = if (rowFocused) {
-                                            RadioButtonDefaults.colors(
-                                                selectedColor = Color.Black,
-                                                unselectedColor = Color.DarkGray,
-                                            )
-                                        } else {
-                                            RadioButtonDefaults.colors(
-                                                selectedColor = NeonPurple,
-                                                unselectedColor = NeonPurpleGlow,
-                                            )
-                                        },
-                                    )
-                                    Text("${source.name}${if (source.owned) " (owned)" else ""}")
-                                }
-                            }
+                            )
                         }
                     }
                 }
@@ -256,15 +234,12 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                             Text("Scan with your phone (same Wi-Fi as the TV), or visit:")
                             Text(pairingUrl!!, style = MaterialTheme.typography.bodyLarge)
                             Text("Paste the relay URL there and it'll appear here automatically.")
-                            Button(
+                            OutlinedButton(
                                 onClick = {
                                     pairingServer?.stop()
                                     pairingServer = null
                                     pairingUrl = null
                                 },
-                                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                                border = neonPurpleButtonBorder(),
-                                glow = neonPurpleButtonGlow(),
                                 modifier = Modifier
                                     .focusRequester(cancelPairingFocus)
                                     .focusProperties {
@@ -282,13 +257,12 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Max transcode video bitrate")
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // FilterChip's own selected-state checkmark replaces the
+                    // old "[bracket]" text hack.
                     BITRATE_PRESETS_KBPS.forEachIndexed { index, preset ->
-                        val selected = settings.maxVideoBitrateKbps == preset
-                        Button(
+                        FilterChip(
+                            selected = settings.maxVideoBitrateKbps == preset,
                             onClick = { settings = settings.copy(maxVideoBitrateKbps = preset) },
-                            colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                            border = neonPurpleButtonBorder(),
-                            glow = neonPurpleButtonGlow(),
                             modifier = Modifier
                                 .let { if (index == 0) it.focusRequester(bitrateRowFocus) else it }
                                 .focusProperties {
@@ -296,7 +270,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                                     down = forceBurnFocus
                                 },
                         ) {
-                            Text(if (selected) "[${preset / 1000} Mbps]" else "${preset / 1000} Mbps")
+                            Text("${preset / 1000} Mbps")
                         }
                     }
                 }
@@ -304,20 +278,16 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Force-burn subtitles into video even when not required")
-                Button(
-                    onClick = { settings = settings.copy(forceBurnSubtitles = !settings.forceBurnSubtitles) },
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
+                Switch(
+                    checked = settings.forceBurnSubtitles,
+                    onCheckedChange = { settings = settings.copy(forceBurnSubtitles = it) },
                     modifier = Modifier
                         .focusRequester(forceBurnFocus)
                         .focusProperties {
                             up = bitrateRowFocus
                             down = saveFocus
                         },
-                ) {
-                    Text(if (settings.forceBurnSubtitles) "On" else "Off")
-                }
+                )
             }
 
             Button(
