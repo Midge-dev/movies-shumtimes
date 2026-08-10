@@ -28,8 +28,18 @@ class HostPlaybackCoordinator(
     private val onWaitingOnChanged: (List<String>) -> Unit = {},
 ) {
     private companion object {
-        const val STALL_GRACE_MS = 500L
-        const val RECOVERY_HYSTERESIS_MS = 400L
+        // Widened twice now (500 -> 1500 -> 2500ms). The first widening
+        // targeted hard-seek-induced rebuffers; a real-world test still
+        // hit repeated stall/resume cycles afterward, which points less at
+        // "correction overshoot" and more at one side's connection
+        // genuinely not sustaining the selected transcode bitrate — every
+        // real buffer event pausing the *whole room* is much more visible
+        // than a solo Plex client just buffering quietly. This buys more
+        // tolerance before that turns into a full room-wide pause, but a
+        // chronically insufficient bitrate needs fixing in Settings, not
+        // just a bigger number here.
+        const val STALL_GRACE_MS = 2_500L
+        const val RECOVERY_HYSTERESIS_MS = 800L
         const val SAFETY_TIMEOUT_MS = 15_000L
         const val HEARTBEAT_PLAYING_MS = 2_000L
         const val HEARTBEAT_IDLE_MS = 5_000L

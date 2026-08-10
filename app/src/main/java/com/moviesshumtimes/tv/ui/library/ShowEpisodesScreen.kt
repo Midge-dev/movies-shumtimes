@@ -10,9 +10,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,6 +42,14 @@ fun ShowEpisodesScreen(
 ) {
     BackHandler(onBack = onBack)
 
+    // See LibraryScreen's matching comment — AppNavigationDrawer's sidebar
+    // is the first focusable thing in the composition, so every wrapped
+    // screen needs its own explicit request or D-pad focus defaults there.
+    val firstItemFocus = remember { FocusRequester() }
+    LaunchedEffect(episodes) {
+        runCatching { firstItemFocus.requestFocus() }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp)) {
             Text(text = showTitle, style = MaterialTheme.typography.displaySmall)
@@ -48,15 +60,20 @@ fun ShowEpisodesScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(episodes, key = { it.ratingKey }) { episode ->
-                EpisodeRow(server = server, episode = episode, onClick = { onSelect(episode) })
+            itemsIndexed(episodes, key = { _, it -> it.ratingKey }) { index, episode ->
+                EpisodeRow(
+                    server = server,
+                    episode = episode,
+                    onClick = { onSelect(episode) },
+                    modifier = if (index == 0) Modifier.focusRequester(firstItemFocus) else Modifier,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun EpisodeRow(server: PlexServer, episode: PlexEpisode, onClick: () -> Unit) {
+private fun EpisodeRow(server: PlexServer, episode: PlexEpisode, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val heading = episode.index?.let { "${it}. ${episode.title}" } ?: episode.title
     WideCardContainer(
         modifier = Modifier.fillMaxWidth(),
@@ -66,7 +83,7 @@ private fun EpisodeRow(server: PlexServer, episode: PlexEpisode, onClick: () -> 
                 interactionSource = interactionSource,
                 border = neonPurpleCardBorder(),
                 glow = neonPurpleCardGlow(),
-                modifier = Modifier.width(160.dp).height(90.dp),
+                modifier = modifier.width(160.dp).height(90.dp),
             ) {
                 AsyncImage(
                     model = PlexImageUrl.of(server, episode.thumb),

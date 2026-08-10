@@ -55,6 +55,7 @@ import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.net.URI
+import java.net.URLEncoder
 
 private const val PRESENCE_INTERVAL_MS = 3_000L
 private const val ROSTER_STALE_MS = PRESENCE_INTERVAL_MS * 3
@@ -185,7 +186,7 @@ fun LobbyScreen(
         )
 
         if (showChatModal) {
-            ChatQrModal(relayUrl = relay.relayUrl, onDismiss = { showChatModal = false })
+            ChatQrModal(relayUrl = relay.relayUrl, defaultName = localUsername, onDismiss = { showChatModal = false })
         }
     }
 }
@@ -199,13 +200,16 @@ fun LobbyScreen(
 // fully visible regardless of what else is on the lobby screen, and it
 // can afford a much bigger, more scannable QR code too.
 @Composable
-private fun ChatQrModal(relayUrl: String, onDismiss: () -> Unit) {
+private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> Unit) {
     // relayUrl is guaranteed non-placeholder here: LobbyScreen only exists
     // when ensureRelayClient() already built a real connection from it (see
     // MainActivity's onPlay/onSelect handlers), so there's nothing left to
     // validate — just the ws(s):// -> http(s):// scheme swap can fail if
     // the URL is malformed in some other way (missing host, etc).
-    val chatUrl = remember(relayUrl) { relayUrlToChatUrl(relayUrl) }
+    // defaultName rides along as a query param so scanning your own TV's
+    // code pre-fills your real Plex username on the chat page instead of a
+    // random "Phone 123" — still editable there, and remembered after.
+    val chatUrl = remember(relayUrl, defaultName) { relayUrlToChatUrl(relayUrl, defaultName) }
     val closeFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { closeFocusRequester.requestFocus() }
 
@@ -259,9 +263,11 @@ private fun ChatQrModal(relayUrl: String, onDismiss: () -> Unit) {
 }
 
 // Derives the relay's phone-facing chat page URL from its WebSocket URL —
-// same host/port/token, http(s) scheme, /chat path. No app install needed
-// on the phone side, matching the existing "Pair from phone" QR flow.
-private fun relayUrlToChatUrl(relayUrl: String): String? {
+// same host/port/token, http(s) scheme, /chat path, plus a name param so
+// the chat page can default to the scanning device's real username instead
+// of a random placeholder. No app install needed on the phone side,
+// matching the existing "Pair from phone" QR flow.
+private fun relayUrlToChatUrl(relayUrl: String, defaultName: String): String? {
     val uri = runCatching { URI(relayUrl) }.getOrNull() ?: return null
     val scheme = when (uri.scheme) {
         "wss" -> "https"
@@ -270,7 +276,11 @@ private fun relayUrlToChatUrl(relayUrl: String): String? {
     }
     val host = uri.host ?: return null
     val portPart = if (uri.port != -1) ":${uri.port}" else ""
-    val query = uri.rawQuery?.let { "?$it" } ?: ""
+    val params = buildList {
+        uri.rawQuery?.let { add(it) }
+        if (defaultName.isNotBlank()) add("name=${URLEncoder.encode(defaultName, "UTF-8")}")
+    }
+    val query = if (params.isNotEmpty()) "?${params.joinToString("&")}" else ""
     return "$scheme://$host$portPart/chat$query"
 }
 

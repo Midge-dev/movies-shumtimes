@@ -11,9 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,6 +42,14 @@ fun ShowSeasonsScreen(
 ) {
     BackHandler(onBack = onBack)
 
+    // See LibraryScreen's matching comment — AppNavigationDrawer's sidebar
+    // is the first focusable thing in the composition, so every wrapped
+    // screen needs its own explicit request or D-pad focus defaults there.
+    val firstItemFocus = remember { FocusRequester() }
+    LaunchedEffect(seasons) {
+        runCatching { firstItemFocus.requestFocus() }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
             text = showTitle,
@@ -51,15 +63,20 @@ fun ShowSeasonsScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp),
             modifier = Modifier.fillMaxWidth().weight(1f),
         ) {
-            items(seasons, key = { it.ratingKey }) { season ->
-                SeasonPoster(server = server, season = season, onClick = { onSelect(season) })
+            itemsIndexed(seasons, key = { _, it -> it.ratingKey }) { index, season ->
+                SeasonPoster(
+                    server = server,
+                    season = season,
+                    onClick = { onSelect(season) },
+                    modifier = if (index == 0) Modifier.focusRequester(firstItemFocus) else Modifier,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SeasonPoster(server: PlexServer, season: PlexSeason, onClick: () -> Unit) {
+private fun SeasonPoster(server: PlexServer, season: PlexSeason, onClick: () -> Unit, modifier: Modifier = Modifier) {
     StandardCardContainer(
         modifier = Modifier.width(160.dp),
         imageCard = { interactionSource ->
@@ -68,7 +85,7 @@ private fun SeasonPoster(server: PlexServer, season: PlexSeason, onClick: () -> 
                 interactionSource = interactionSource,
                 border = neonPurpleCardBorder(),
                 glow = neonPurpleCardGlow(),
-                modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                modifier = modifier.fillMaxWidth().aspectRatio(2f / 3f),
             ) {
                 AsyncImage(
                     model = PlexImageUrl.of(server, season.thumb),

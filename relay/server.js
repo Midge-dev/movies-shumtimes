@@ -17,6 +17,12 @@ const MAX_DEVICE_SEATS = Number(process.env.MAX_DEVICE_SEATS || 8);
 const MAX_CHAT_PEERS = 4;
 const RECONNECT_GRACE_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
+// Device seats reclaim themselves via reconnect tokens, but a chat peer
+// (a phone browser tab) has no such lifecycle — someone can leave the page
+// open long after the movie's over, holding a slot indefinitely. Kicking
+// after a fixed session length bounds that without needing any real
+// idle-detection.
+const CHAT_MAX_SESSION_MS = 30 * 60_000;
 
 // device seats: up to MAX_DEVICE_SEATS, index 0 is host, 1..N-1 are guests —
 // assigned in first-ever-connect order and then stable across reconnects
@@ -91,6 +97,7 @@ function handleChatHello(ws) {
     return;
   }
   ws.isChatPeer = true;
+  ws.chatConnectedAt = Date.now();
   chatPeers.add(ws);
   ws.send(JSON.stringify({ type: 'welcome', peerId: crypto.randomUUID(), seatIndex: null }));
 }
@@ -197,7 +204,17 @@ wss.on('connection', (ws) => {
 // right away instead of waiting on a TCP-level timeout that can take many
 // minutes or never fire at all through a hosting provider's proxy.
 const heartbeatInterval = setInterval(() => {
+  const now = Date.now();
   for (const ws of wss.clients) {
+    if (ws.isChatPeer && now - ws.chatConnectedAt > CHAT_MAX_SESSION_MS) {
+      // A real close (not terminate()) with a distinct message type — the
+      // page needs to tell this apart from an ordinary drop so it doesn't
+      // just auto-reconnect and immediately restart the 30-minute clock.
+      try { ws.send(JSON.stringify({ type: 'kicked', reason: 'session_expired' })); } catch { /* already gone */ }
+      releaseConnection(ws);
+      ws.close(4001, 'session expired');
+      continue;
+    }
     if (ws.isAlive === false) {
       releaseConnection(ws);
       ws.terminate();
@@ -238,6 +255,11 @@ const CHAT_PAGE_HTML = `<!doctype html>
   header { padding: 16px 20px; border-bottom: 1px solid #2A2A33; }
   h1 { font-size: 16px; margin: 0; }
   #status { font-size: 12px; color: #C7C7D1; margin-top: 4px; }
+  #nameField {
+    background: transparent; border: none; border-bottom: 1px dashed #C7C7D1;
+    color: #E795FC; font-weight: 600; font-size: 12px; padding: 0 2px; width: 120px;
+  }
+  #nameField:focus { outline: none; border-bottom-color: #AD2BD7; }
   #log { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
   .msg { font-size: 14px; }
   .msg .who { color: #E795FC; font-weight: 600; margin-right: 6px; }
@@ -256,6 +278,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
   <header>
     <h1>Movies Shumtimes — Chat</h1>
     <div id="status">Connecting…</div>
+    <div>Chatting as <input type="text" id="nameField" maxlength="24"></div>
   </header>
   <div id="log"></div>
   <form id="form">
@@ -267,7 +290,23 @@ const CHAT_PAGE_HTML = `<!doctype html>
     const logEl = document.getElementById('log');
     const form = document.getElementById('form');
     const textInput = document.getElementById('text');
-    const username = 'Phone ' + Math.floor(Math.random() * 900 + 100);
+    const nameField = document.getElementById('nameField');
+
+    // Priority: a name you've already edited here (localStorage) beats the
+    // TV's QR-embedded default (?name=...) on return visits, which beats a
+    // random placeholder if neither is set. Scanning your own TV's QR the
+    // first time pre-fills your real Plex username instead of "Phone 123".
+    const urlName = new URLSearchParams(location.search).get('name');
+    let username = localStorage.getItem('shumtimes_chat_name')
+      || urlName
+      || ('Phone ' + Math.floor(Math.random() * 900 + 100));
+    nameField.value = username;
+
+    nameField.addEventListener('change', () => {
+      username = nameField.value.trim() || username;
+      nameField.value = username;
+      localStorage.setItem('shumtimes_chat_name', username);
+    });
 
     function appendLine(who, text) {
       const line = document.createElement('div');
@@ -283,15 +322,17 @@ const CHAT_PAGE_HTML = `<!doctype html>
 
     let ws;
     let backoffMs = 1000;
+    let kicked = false;
     function connect() {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(proto + '//' + location.host + '/' + location.search);
       ws.onopen = () => {
-        statusEl.textContent = 'Connected as ' + username;
+        statusEl.textContent = 'Connected';
         backoffMs = 1000;
         ws.send(JSON.stringify({ type: 'hello', role: 'chat' }));
       };
       ws.onclose = () => {
+        if (kicked) return;
         statusEl.textContent = 'Disconnected — retrying…';
         setTimeout(connect, backoffMs);
         backoffMs = Math.min(backoffMs * 2, 15000);
@@ -299,6 +340,11 @@ const CHAT_PAGE_HTML = `<!doctype html>
       ws.onerror = () => ws.close();
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
+        if (msg.type === 'kicked') {
+          kicked = true;
+          statusEl.textContent = 'Session ended after 30 minutes — reopen the chat from the TV to rejoin.';
+          return;
+        }
         if (msg.type === 'event' && msg.payload && msg.payload.kind === 'chat') {
           appendLine(msg.payload.username || 'them', msg.payload.text || '');
         }

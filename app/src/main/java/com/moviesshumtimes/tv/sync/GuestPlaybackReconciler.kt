@@ -30,8 +30,18 @@ class GuestPlaybackReconciler(
 ) {
     private companion object {
         const val TICK_MS = 500L
-        const val DEADBAND_MS = 350L
-        const val HARD_SEEK_COOLDOWN_MS = 2_000L
+        // 350ms was too tight for a relay-routed, cross-household
+        // connection: without rate-based nudging (see
+        // HostPlaybackCoordinator's doc comment for why that was dropped),
+        // hard-seek is the *only* correction available, and normal WAN
+        // clock-sync jitter routinely exceeds a few hundred ms even once
+        // converged. At 350ms that meant a disruptive re-seek (and the
+        // real rebuffer it causes) on practically every cooldown cycle —
+        // a couple of seconds of drift between two people on a phone/voice
+        // call together is imperceptible; constant stalling to chase it
+        // isn't.
+        const val DEADBAND_MS = 1_500L
+        const val HARD_SEEK_COOLDOWN_MS = 4_000L
         const val PAUSED_SEEK_THRESHOLD_MS = 500L
         const val SETTLE_TIMEOUT_MS = 1_500L
         const val OPTIMISTIC_WINDOW_MS = 2_000L

@@ -23,7 +23,17 @@ class ClockSync(
 ) {
     private companion object {
         const val WINDOW_SIZE = 8
-        const val MAX_ACCEPTED_RTT_MS = 1_000L
+        // 1000ms (Plezy's original default) assumes a well-connected
+        // network. This app's real topology is two separate households on
+        // residential internet routed through a relay hop — round trips
+        // regularly exceeding 1s are normal there, not a broken network.
+        // Rejecting those samples meant offsetMs stayed null forever on a
+        // real cross-household test, so the guest fell back to assuming
+        // zero clock difference between the two TVs — if their system
+        // clocks actually differed, that's permanent, unresolvable
+        // "drift" that no amount of correction could fix, triggering a
+        // hard-seek every single cooldown cycle forever.
+        const val MAX_ACCEPTED_RTT_MS = 5_000L
         const val INTERVAL_MS = 5_000L
         const val BURST_SPACING_MS = 500L
         const val BURST_COUNT = 3

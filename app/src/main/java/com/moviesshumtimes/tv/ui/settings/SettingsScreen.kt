@@ -120,6 +120,17 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
     val saveFocus = remember { FocusRequester() }
     val scrollState = rememberScrollState()
 
+    // See LibraryScreen's matching comment — AppNavigationDrawer's sidebar
+    // is the first focusable thing in the composition, so this screen needs
+    // its own explicit request too. Waits for sourcesLoaded since the
+    // source rows (the preferred target) don't exist until that async
+    // fetch finishes either way — falls back to the always-present relay
+    // URL field if there are none.
+    LaunchedEffect(sourcesLoaded, sourceFocuses) {
+        if (!sourcesLoaded) return@LaunchedEffect
+        runCatching { (sourceFocuses.firstOrNull() ?: relayUrlFocus).requestFocus() }
+    }
+
     Row(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier

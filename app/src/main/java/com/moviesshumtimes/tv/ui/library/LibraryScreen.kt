@@ -82,6 +82,16 @@ fun LibraryScreen(
 
     BackHandler(enabled = filtersExpanded) { filtersExpanded = false }
 
+    // AppNavigationDrawer wraps this screen now, and its sidebar is the
+    // first focusable thing in the composition — without an explicit
+    // request here, D-pad focus defaults to (and gets stuck in) the nav
+    // rail instead of the library content on every entry. Keyed on the
+    // section so switching sections from the drawer re-focuses content
+    // too, not just the very first time this screen appears.
+    LaunchedEffect(selectedSection.key) {
+        runCatching { searchFocus.requestFocus() }
+    }
+
     LaunchedEffect(filtersExpanded) {
         if (filtersExpanded) runCatching { filterPanelFirstFocus.requestFocus() }
     }

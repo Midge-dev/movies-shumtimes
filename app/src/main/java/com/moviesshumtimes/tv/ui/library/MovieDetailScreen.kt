@@ -8,8 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -35,6 +39,14 @@ fun MovieDetailScreen(
     onPlay: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
+
+    // See LibraryScreen's matching comment — AppNavigationDrawer's sidebar
+    // is the first focusable thing in the composition, so every wrapped
+    // screen needs its own explicit request or D-pad focus defaults there.
+    val playFocus = remember { FocusRequester() }
+    LaunchedEffect(movie.ratingKey) {
+        runCatching { playFocus.requestFocus() }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AsyncImage(
@@ -62,7 +74,7 @@ fun MovieDetailScreen(
                 colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
                 border = neonPurpleButtonBorder(),
                 glow = neonPurpleButtonGlow(),
-                modifier = Modifier.padding(top = 24.dp),
+                modifier = Modifier.padding(top = 24.dp).focusRequester(playFocus),
             ) {
                 Text(if (isShow) "View Seasons" else "Play")
             }
