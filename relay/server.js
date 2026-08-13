@@ -261,8 +261,16 @@ const CHAT_PAGE_HTML = `<!doctype html>
   }
   #nameField:focus { outline: none; border-bottom-color: #AD2BD7; }
   #log { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
-  .msg { font-size: 14px; }
-  .msg .who { color: #E795FC; font-weight: 600; margin-right: 6px; }
+  .msg { display: flex; flex-direction: column; max-width: 75%; }
+  .msg.mine { align-self: flex-end; align-items: flex-end; }
+  .msg.theirs { align-self: flex-start; align-items: flex-start; }
+  .msg .who { font-size: 11px; color: #C7C7D1; margin: 0 4px 2px; }
+  .msg .bubble {
+    padding: 8px 12px; border-radius: 16px; font-size: 14px;
+    overflow-wrap: break-word; white-space: pre-wrap;
+  }
+  .msg.mine .bubble { background: linear-gradient(135deg, #E795FC, #AD2BD7); color: #0D0D12; border-bottom-right-radius: 4px; }
+  .msg.theirs .bubble { background: #2A2A33; color: #F2F2F5; border-bottom-left-radius: 4px; }
   form { display: flex; gap: 8px; padding: 16px 20px; border-top: 1px solid #2A2A33; }
   input[type=text] {
     flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #2A2A33;
@@ -308,17 +316,58 @@ const CHAT_PAGE_HTML = `<!doctype html>
       localStorage.setItem('shumtimes_chat_name', username);
     });
 
-    function appendLine(who, text) {
+    // Chat history has no server-side persistence (this relay just
+    // broadcasts each message once, see server.js's broadcastEvent — there's
+    // no room/session store to replay from), so a page refresh used to wipe
+    // the log entirely. Mirroring it into localStorage fixes that without a
+    // backend: purely client-side, scoped to this phone/browser only, capped
+    // so it can't grow unbounded. It won't show history from a different
+    // phone or from before this browser's first visit — a real fix for that
+    // would need the relay to store and replay messages server-side.
+    const STORAGE_KEY = 'shumtimes_chat_history';
+    const MAX_STORED_MESSAGES = 200;
+
+    function loadStoredMessages() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    const messages = loadStoredMessages();
+
+    function saveMessages() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)));
+      } catch { /* storage full/unavailable — history just won't persist */ }
+    }
+
+    function renderMessage(who, text, isMe) {
       const line = document.createElement('div');
-      line.className = 'msg';
-      const whoEl = document.createElement('span');
-      whoEl.className = 'who';
-      whoEl.textContent = who + ':';
-      line.appendChild(whoEl);
-      line.appendChild(document.createTextNode(text));
+      line.className = 'msg ' + (isMe ? 'mine' : 'theirs');
+      if (!isMe) {
+        const whoEl = document.createElement('div');
+        whoEl.className = 'who';
+        whoEl.textContent = who;
+        line.appendChild(whoEl);
+      }
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+      line.appendChild(bubble);
       logEl.appendChild(line);
       logEl.scrollTop = logEl.scrollHeight;
     }
+
+    function appendLine(who, text, isMe) {
+      renderMessage(who, text, isMe);
+      messages.push({ who, text, isMe });
+      saveMessages();
+    }
+
+    for (const m of messages) renderMessage(m.who, m.text, m.isMe);
 
     let ws;
     let backoffMs = 1000;
@@ -346,7 +395,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
           return;
         }
         if (msg.type === 'event' && msg.payload && msg.payload.kind === 'chat') {
-          appendLine(msg.payload.username || 'them', msg.payload.text || '');
+          appendLine(msg.payload.username || 'them', msg.payload.text || '', false);
         }
       };
     }
@@ -357,7 +406,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
       const text = textInput.value.trim();
       if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ type: 'event', payload: { kind: 'chat', username, text } }));
-      appendLine('you', text);
+      appendLine(username, text, true);
       textInput.value = '';
     });
   </script>
