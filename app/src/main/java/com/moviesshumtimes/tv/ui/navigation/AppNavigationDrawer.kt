@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
@@ -41,7 +42,6 @@ import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.ui.theme.AppSurface
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
-import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
 private const val SECTION_TYPE_SHOW = "show"
 private val COLLAPSED_WIDTH = 72.dp
@@ -70,8 +70,10 @@ fun AppNavigationDrawer(
     sections: List<PlexSection>,
     selectedSectionKey: String?,
     isSettingsSelected: Boolean,
+    isHomeSelected: Boolean,
     onSelectSection: (PlexSection) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHome: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     var hasFocus by remember { mutableStateOf(false) }
@@ -92,11 +94,18 @@ fun AppNavigationDrawer(
                 .padding(vertical = 24.dp, horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            SidebarItem(
+                icon = Icons.Default.Home,
+                label = "Home",
+                selected = isHomeSelected,
+                labelVisible = hasFocus,
+                onClick = onOpenHome,
+            )
             for (section in sections) {
                 SidebarItem(
                     icon = if (section.type == SECTION_TYPE_SHOW) Icons.Default.Tv else Icons.Default.Movie,
                     label = section.title,
-                    selected = !isSettingsSelected && section.key == selectedSectionKey,
+                    selected = !isSettingsSelected && !isHomeSelected && section.key == selectedSectionKey,
                     labelVisible = hasFocus,
                     onClick = { onSelectSection(section) },
                 )
@@ -116,9 +125,14 @@ fun AppNavigationDrawer(
     }
 }
 
-// Same two-tone treatment as buttons/cards elsewhere: focused fill is the
-// deeper NeonPurple with the glow tone for the icon/label, and a subtler
-// persistent tint marks whichever section is selected even without focus.
+// Background color alone carries focused/selected/idle state; text and
+// icon stay plain white in every state. This used to two-tone the text too
+// (NeonPurpleGlow when focused, NeonPurple when selected) matching buttons/
+// cards elsewhere, but both combinations turned out low-contrast and hard
+// to read against their own NeonPurple-family backgrounds (reported as an
+// accessibility issue, confirmed on real hardware/photos — looks fine in a
+// quick screenshot glance but reads as genuinely hard to read on an actual
+// TV). White stays legible against every background state here.
 @Composable
 private fun SidebarItem(
     icon: ImageVector,
@@ -133,7 +147,7 @@ private fun SidebarItem(
         selected -> NeonPurple.copy(alpha = 0.35f)
         else -> Color.Transparent
     }
-    val contentColor = if (focused) NeonPurpleGlow else if (selected) NeonPurple else Color.White
+    val contentColor = Color.White
 
     Row(
         verticalAlignment = Alignment.CenterVertically,

@@ -298,7 +298,10 @@ private fun LibraryPoster(server: PlexServer, item: PlexLibraryItem, onClick: ()
             // StandardCardContainer's default gap between the bordered image
             // and the title below it is too tight for our thicker focus
             // border — the title visually collides with it when focused.
-            Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+            // 8dp wasn't enough once the glow (not just the border stroke)
+            // is accounted for, since CardGlow's elevation shadow extends
+            // further than a flat border (reported as still too tight).
+            Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 16.dp))
         },
     )
 }

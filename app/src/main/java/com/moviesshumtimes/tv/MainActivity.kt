@@ -38,6 +38,7 @@ import com.moviesshumtimes.tv.data.plex.PlexEpisode
 import com.moviesshumtimes.tv.data.plex.PlexIdentity
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
+import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
 import com.moviesshumtimes.tv.data.plex.PlexResourcesApi
 import com.moviesshumtimes.tv.data.plex.PlexSeason
 import com.moviesshumtimes.tv.data.plex.PlexSection
@@ -54,6 +55,7 @@ import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
 import com.moviesshumtimes.tv.ui.library.ShowEpisodesScreen
 import com.moviesshumtimes.tv.ui.library.ShowSeasonsScreen
 import com.moviesshumtimes.tv.ui.lobby.LobbyScreen
+import com.moviesshumtimes.tv.ui.home.HomeScreen
 import com.moviesshumtimes.tv.ui.navigation.AppNavigationDrawer
 import com.moviesshumtimes.tv.ui.player.PlayerScreen
 import com.moviesshumtimes.tv.ui.settings.RelaySetupScreen
@@ -127,16 +129,43 @@ private sealed interface AppState {
     // Shown once after first login when no relay URL is saved yet — see
     // RelaySetupScreen. Never revisited once a relay URL exists.
     data class RelaySetup(val ctx: LibraryContext) : AppState
+    // Landing screen after login — the only state not scoped to a single
+    // library section, so it carries its own row data instead of a
+    // LibraryContext. Always refetched on entry (see loadHome) since
+    // watch progress / library contents change constantly.
+    data class Home(
+        val server: PlexServer,
+        val sections: List<PlexSection>,
+        val onDeck: List<PlexOnDeckItem>,
+        val recentlyAdded: List<PlexLibraryItem>,
+        val suggestions: List<PlexOnDeckItem>,
+    ) : AppState
     data class Library(val ctx: LibraryContext) : AppState
-    data class Settings(val ctx: LibraryContext) : AppState
-    data class MovieDetail(val ctx: LibraryContext, val movie: PlexLibraryItem) : AppState
-    data class ShowSeasons(val ctx: LibraryContext, val show: PlexLibraryItem, val seasons: List<PlexSeason>) : AppState
+    // returnState mirrors Lobby/Player's field below — Settings is reachable
+    // from Home now too, and Back needs to land wherever it was opened from
+    // rather than always dumping into the Movies library.
+    data class Settings(val ctx: LibraryContext, val returnState: AppState) : AppState
+    // returnState mirrors Settings/Lobby/Player below — MovieDetail is now
+    // reachable from Home (Recently Added/Suggestions) as well as Library,
+    // so Back needs to resolve to wherever it was actually opened from.
+    // ShowSeasons/ShowEpisodes carry it through unchanged (their own Back
+    // already steps back one level internally, to MovieDetail/ShowSeasons)
+    // so a second Back-press after landing back on MovieDetail still
+    // resolves correctly.
+    data class MovieDetail(val ctx: LibraryContext, val movie: PlexLibraryItem, val returnState: AppState) : AppState
+    data class ShowSeasons(
+        val ctx: LibraryContext,
+        val show: PlexLibraryItem,
+        val seasons: List<PlexSeason>,
+        val returnState: AppState,
+    ) : AppState
     data class ShowEpisodes(
         val ctx: LibraryContext,
         val show: PlexLibraryItem,
         val seasons: List<PlexSeason>,
         val season: PlexSeason,
         val episodes: List<PlexEpisode>,
+        val returnState: AppState,
     ) : AppState
     // returnState lets Lobby/Player hand navigation back to wherever the
     // user actually came from — a movie's detail screen, or an episode list.
@@ -221,6 +250,36 @@ private fun AppRoot() {
         }
     }
 
+    // Home has no "currently selected section" to compare against the way
+    // selectSection does, so a click there always fetches fresh.
+    fun openSection(server: PlexServer, sections: List<PlexSection>, section: PlexSection) {
+        scope.launch {
+            val items = runCatching {
+                PlexServerApi(server, clientIdentifier).fetchLibraryItems(section.key)
+            }.getOrElse { emptyList() }
+            state = AppState.Library(LibraryContext(server, sections, section, items))
+        }
+    }
+
+    suspend fun loadHome(server: PlexServer, sections: List<PlexSection>): AppState.Home {
+        val api = PlexServerApi(server, clientIdentifier)
+        val onDeck = runCatching { api.fetchOnDeck() }.getOrElse { emptyList() }
+        val recentlyAdded = runCatching { api.fetchRecentlyAdded() }.getOrElse { emptyList() }
+        val suggestions = runCatching { api.fetchSuggestions() }.getOrElse { emptyList() }
+        return AppState.Home(server, sections, onDeck, recentlyAdded, suggestions)
+    }
+
+    // Optimistic + fire-and-forget, matching TimelineReporter's established
+    // style — no error UI exists anywhere in this app. If the PUT actually
+    // fails server-side, the item just reappears next time Home is
+    // (re)entered, since loadHome always refetches.
+    fun removeFromContinueWatching(home: AppState.Home, item: PlexOnDeckItem) {
+        state = home.copy(onDeck = home.onDeck.filterNot { it.ratingKey == item.ratingKey })
+        scope.launch {
+            runCatching { PlexServerApi(home.server, clientIdentifier).removeFromContinueWatching(item.ratingKey) }
+        }
+    }
+
     suspend fun connect(token: String) {
         accountToken = token
         clientIdentifier = PlexIdentity.getOrCreateClientIdentifier(context)
@@ -240,7 +299,7 @@ private fun AppRoot() {
             val items = serverApi.fetchLibraryItems(firstSection.key)
             val ctx = LibraryContext(server, sections, firstSection, items)
             val relayConfigured = !SettingsStore.observe(context).first().relayUrl.isNullOrBlank()
-            if (relayConfigured) AppState.Library(ctx) else AppState.RelaySetup(ctx)
+            if (relayConfigured) loadHome(server, sections) else AppState.RelaySetup(ctx)
         }.getOrElse { AppState.Error(it.message ?: "Something went wrong connecting to Plex") }
     }
 
@@ -260,35 +319,124 @@ private fun AppRoot() {
         )
         is AppState.LoggedOut -> AuthScreen(onLoggedIn = { token -> scope.launch { connect(token) } })
         is AppState.Error -> Text("Error: ${current.message}")
-        is AppState.RelaySetup -> RelaySetupScreen(onDone = { state = AppState.Library(current.ctx) })
+        is AppState.RelaySetup -> RelaySetupScreen(
+            onDone = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+        )
+        is AppState.Home -> AppNavigationDrawer(
+            sections = current.sections,
+            selectedSectionKey = null,
+            isSettingsSelected = false,
+            isHomeSelected = true,
+            onSelectSection = { section -> openSection(current.server, current.sections, section) },
+            onOpenSettings = {
+                state = AppState.Settings(
+                    LibraryContext(current.server, current.sections, current.sections.first(), emptyList()),
+                    returnState = current,
+                )
+            },
+            onOpenHome = {},
+        ) {
+            HomeScreen(
+                server = current.server,
+                onDeck = current.onDeck,
+                recentlyAdded = current.recentlyAdded,
+                suggestions = current.suggestions,
+                onResume = { item ->
+                    scope.launch {
+                        val fetched = runCatching {
+                            PlexServerApi(current.server, clientIdentifier).fetchMovieDetail(item.ratingKey)
+                        }
+                        state = fetched.fold(
+                            onSuccess = { detail ->
+                                val relay = ensureRelayClient()
+                                if (relay != null) {
+                                    AppState.Lobby(current.server, detail, current, relay)
+                                } else {
+                                    AppState.Player(current.server, detail, current, relay)
+                                }
+                            },
+                            onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
+                        )
+                    }
+                },
+                onRemove = { item -> removeFromContinueWatching(current, item) },
+                onSelectRecentlyAdded = { item ->
+                    // recentlyAdded surfaces TV content at season
+                    // granularity ("Season 14") — there's no season-level
+                    // detail screen in this app, so route to the show
+                    // itself instead, using the parent fields Plex attaches
+                    // to season items (confirmed against a real server).
+                    val target = if (item.type == "season" && item.parentRatingKey != null) {
+                        PlexLibraryItem(
+                            ratingKey = item.parentRatingKey,
+                            type = SECTION_TYPE_SHOW,
+                            title = item.parentTitle ?: item.title,
+                            thumb = item.thumb,
+                            art = item.art,
+                        )
+                    } else {
+                        item
+                    }
+                    val ctx = LibraryContext(
+                        current.server,
+                        current.sections,
+                        current.sections.firstOrNull { it.type == target.type } ?: current.sections.first(),
+                        emptyList(),
+                    )
+                    state = AppState.MovieDetail(ctx, target, returnState = current)
+                },
+                onSelectSuggestion = { item ->
+                    val ctx = LibraryContext(
+                        current.server,
+                        current.sections,
+                        current.sections.firstOrNull { it.type == item.type } ?: current.sections.first(),
+                        emptyList(),
+                    )
+                    val movie = PlexLibraryItem(
+                        ratingKey = item.ratingKey,
+                        type = item.type,
+                        title = item.title,
+                        thumb = item.thumb,
+                        art = item.art,
+                    )
+                    state = AppState.MovieDetail(ctx, movie, returnState = current)
+                },
+            )
+        }
         is AppState.Library -> AppNavigationDrawer(
             sections = current.ctx.sections,
             selectedSectionKey = current.ctx.selectedSection.key,
             isSettingsSelected = false,
+            isHomeSelected = false,
             onSelectSection = { section -> selectSection(current.ctx, section) },
-            onOpenSettings = { state = AppState.Settings(current.ctx) },
+            onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
+            onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
         ) {
             LibraryScreen(
                 server = current.ctx.server,
                 selectedSection = current.ctx.selectedSection,
                 items = current.ctx.items,
-                onSelectItem = { item -> state = AppState.MovieDetail(current.ctx, item) },
+                onSelectItem = { item ->
+                    state = AppState.MovieDetail(current.ctx, item, returnState = AppState.Library(current.ctx))
+                },
             )
         }
         is AppState.Settings -> AppNavigationDrawer(
             sections = current.ctx.sections,
             selectedSectionKey = current.ctx.selectedSection.key,
             isSettingsSelected = true,
+            isHomeSelected = false,
             onSelectSection = { section -> selectSection(current.ctx, section) },
             onOpenSettings = {},
+            onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
         ) {
             SettingsScreen(
                 accountToken = accountToken ?: "",
                 clientIdentifier = clientIdentifier,
-                onBack = { state = AppState.Library(current.ctx) },
+                onBack = { state = current.returnState },
                 onSaved = {
                     val token = accountToken
-                    if (token != null) scope.launch { connect(token) } else state = AppState.Library(current.ctx)
+                    if (token != null) scope.launch { connect(token) } else state = current.returnState
                 },
             )
         }
@@ -296,21 +444,25 @@ private fun AppRoot() {
             sections = current.ctx.sections,
             selectedSectionKey = current.ctx.selectedSection.key,
             isSettingsSelected = false,
+            isHomeSelected = false,
             onSelectSection = { section -> selectSection(current.ctx, section) },
-            onOpenSettings = { state = AppState.Settings(current.ctx) },
+            onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
+            onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
         ) {
             MovieDetailScreen(
                 server = current.ctx.server,
                 movie = current.movie,
                 isShow = current.ctx.selectedSection.type == SECTION_TYPE_SHOW,
-                onBack = { state = AppState.Library(current.ctx) },
+                onBack = { state = current.returnState },
                 onPlay = {
                     scope.launch {
                         val serverApi = PlexServerApi(current.ctx.server, clientIdentifier)
                         if (current.ctx.selectedSection.type == SECTION_TYPE_SHOW) {
                             val fetched = runCatching { serverApi.fetchSeasons(current.movie.ratingKey) }
                             state = fetched.fold(
-                                onSuccess = { seasons -> AppState.ShowSeasons(current.ctx, current.movie, seasons) },
+                                onSuccess = { seasons ->
+                                    AppState.ShowSeasons(current.ctx, current.movie, seasons, current.returnState)
+                                },
                                 onFailure = { AppState.Error(it.message ?: "Couldn't load seasons") },
                             )
                         } else {
@@ -338,8 +490,10 @@ private fun AppRoot() {
             sections = current.ctx.sections,
             selectedSectionKey = current.ctx.selectedSection.key,
             isSettingsSelected = false,
+            isHomeSelected = false,
             onSelectSection = { section -> selectSection(current.ctx, section) },
-            onOpenSettings = { state = AppState.Settings(current.ctx) },
+            onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
+            onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
         ) {
             ShowSeasonsScreen(
                 server = current.ctx.server,
@@ -352,21 +506,32 @@ private fun AppRoot() {
                         }
                         state = fetched.fold(
                             onSuccess = { episodes ->
-                                AppState.ShowEpisodes(current.ctx, current.show, current.seasons, season, episodes)
+                                AppState.ShowEpisodes(
+                                    current.ctx,
+                                    current.show,
+                                    current.seasons,
+                                    season,
+                                    episodes,
+                                    current.returnState,
+                                )
                             },
                             onFailure = { AppState.Error(it.message ?: "Couldn't load episodes") },
                         )
                     }
                 },
-                onBack = { state = AppState.MovieDetail(current.ctx, current.show) },
+                onBack = {
+                    state = AppState.MovieDetail(current.ctx, current.show, current.returnState)
+                },
             )
         }
         is AppState.ShowEpisodes -> AppNavigationDrawer(
             sections = current.ctx.sections,
             selectedSectionKey = current.ctx.selectedSection.key,
             isSettingsSelected = false,
+            isHomeSelected = false,
             onSelectSection = { section -> selectSection(current.ctx, section) },
-            onOpenSettings = { state = AppState.Settings(current.ctx) },
+            onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
+            onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
         ) {
             ShowEpisodesScreen(
                 server = current.ctx.server,
@@ -391,7 +556,9 @@ private fun AppRoot() {
                         )
                     }
                 },
-                onBack = { state = AppState.ShowSeasons(current.ctx, current.show, current.seasons) },
+                onBack = {
+                    state = AppState.ShowSeasons(current.ctx, current.show, current.seasons, current.returnState)
+                },
             )
         }
         is AppState.Lobby -> key(current.detail.ratingKey) {

@@ -54,7 +54,7 @@ fun ShowSeasonsScreen(
         Text(
             text = showTitle,
             style = MaterialTheme.typography.displaySmall,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp),
+            modifier = Modifier.padding(start = 32.dp, top = 16.dp, end = 32.dp, bottom = 24.dp),
         )
         LazyVerticalGrid(
             columns = GridCells.Fixed(5),
@@ -96,7 +96,8 @@ private fun SeasonPoster(server: PlexServer, season: PlexSeason, onClick: () -> 
             }
         },
         title = {
-            Text(text = season.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+            // Same glow-vs-title collision fix as LibraryScreen's poster.
+            Text(text = season.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 16.dp))
         },
     )
 }
