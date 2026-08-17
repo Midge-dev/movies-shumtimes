@@ -31,17 +31,18 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.pairing.PairingServer
 import com.moviesshumtimes.tv.data.settings.SettingsStore
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
+import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
-import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
+import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
+import com.moviesshumtimes.tv.ui.theme.whiteOutlinedButtonColors
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -75,130 +76,142 @@ fun RelaySetupScreen(onDone: () -> Unit) {
     val saveFocus = remember { FocusRequester() }
     val skipFocus = remember { FocusRequester() }
 
-    Box(modifier = Modifier.fillMaxSize().padding(48.dp), contentAlignment = Alignment.Center) {
-        Column(
-            modifier = Modifier.widthIn(max = 640.dp).verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("Set up watch-together", style = MaterialTheme.typography.headlineMedium)
-            Text(
-                "Movies Shumtimes syncs playback with whoever you're watching with, over a " +
-                    "relay server. Paste its URL below, or scan the QR from your phone.",
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 8.dp, bottom = 32.dp),
-            )
+    val scrollState = rememberScrollState()
 
-            ClickToTypeTextField(
-                value = relayUrl,
-                onValueChange = { relayUrl = it },
-                textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
-                modifier = Modifier
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(12.dp)
-                    .widthIn(min = 500.dp)
-                    .focusRequester(relayUrlFocus)
-                    .focusProperties { down = pairButtonFocus },
-            )
-
-            Button(
-                onClick = {
-                    pairingError = null
-                    val server = PairingServer(
-                        onSubmitted = { value ->
-                            Handler(Looper.getMainLooper()).post {
-                                relayUrl = value
-                                pairingServer?.stop()
-                                pairingServer = null
-                                pairingUrl = null
-                            }
-                        },
-                    )
-                    val url = server.start()
-                    if (url != null) {
-                        pairingServer = server
-                        pairingUrl = url
-                    } else {
-                        pairingError = "Couldn't find a Wi-Fi address — is the TV connected to a network?"
-                    }
-                },
-                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
-                border = neonPurpleButtonBorder(),
-                glow = neonPurpleButtonGlow(),
-                modifier = Modifier
-                    .padding(top = 16.dp)
-                    .focusRequester(pairButtonFocus)
-                    .focusProperties {
-                        up = relayUrlFocus
-                        down = if (pairingUrl != null) cancelPairingFocus else saveFocus
-                    },
+    // Plain Box+Center had no scrollbar at all — when the QR pairing panel
+    // is showing, the content can run taller than the screen, and Save &
+    // continue/Skip for now scroll out of view with zero indication
+    // scrolling is even possible (read as "cut off buttons"). Same
+    // NeonScrollbar SettingsScreen already uses for the same reason.
+    Row(modifier = Modifier.fillMaxSize().padding(48.dp)) {
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Column(
+                modifier = Modifier.widthIn(max = 640.dp).verticalScroll(scrollState),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Pair from phone")
-            }
+                Text("Set up watch-together", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    "Movies Shumtimes syncs playback with whoever you're watching with, over a " +
+                        "relay server. Paste its URL below, or scan the QR from your phone.",
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 32.dp),
+                )
 
-            if (pairingError != null) {
-                Text(pairingError!!, modifier = Modifier.padding(top = 16.dp))
-            }
-
-            if (pairingUrl != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                ClickToTypeTextField(
+                    value = relayUrl,
+                    onValueChange = { relayUrl = it },
+                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
                     modifier = Modifier
-                        .padding(top = 24.dp)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(24.dp),
-                ) {
-                    QrCodeImage(
-                        content = pairingUrl!!,
-                        modifier = Modifier.size(160.dp).background(Color.White).padding(12.dp),
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Scan with your phone (same Wi-Fi as the TV), or visit:")
-                        Text(pairingUrl!!, style = MaterialTheme.typography.bodyLarge)
-                        Text("Paste the relay URL there and it'll appear here automatically.")
-                        OutlinedButton(
-                            onClick = {
-                                pairingServer?.stop()
-                                pairingServer = null
-                                pairingUrl = null
-                            },
-                            modifier = Modifier
-                                .focusRequester(cancelPairingFocus)
-                                .focusProperties {
-                                    up = pairButtonFocus
-                                    down = saveFocus
-                                },
-                        ) {
-                            Text("Cancel")
-                        }
-                    }
-                }
-            }
+                        .padding(12.dp)
+                        .widthIn(min = 500.dp)
+                        .focusRequester(relayUrlFocus)
+                        .focusProperties { down = pairButtonFocus },
+                )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.padding(top = 32.dp)) {
                 Button(
-                    onClick = { scope.launch { saveAndContinue() } },
-                    enabled = relayUrl.isNotBlank(),
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    onClick = {
+                        pairingError = null
+                        val server = PairingServer(
+                            onSubmitted = { value ->
+                                Handler(Looper.getMainLooper()).post {
+                                    relayUrl = value
+                                    pairingServer?.stop()
+                                    pairingServer = null
+                                    pairingUrl = null
+                                }
+                            },
+                        )
+                        val url = server.start()
+                        if (url != null) {
+                            pairingServer = server
+                            pairingUrl = url
+                        } else {
+                            pairingError = "Couldn't find a Wi-Fi address — is the TV connected to a network?"
+                        }
+                    },
+                    colors = whiteButtonColors(),
                     border = neonPurpleButtonBorder(),
                     glow = neonPurpleButtonGlow(),
                     modifier = Modifier
-                        .focusRequester(saveFocus)
+                        .padding(top = 16.dp)
+                        .focusRequester(pairButtonFocus)
                         .focusProperties {
-                            up = if (pairingUrl != null) cancelPairingFocus else pairButtonFocus
-                            down = skipFocus
+                            up = relayUrlFocus
+                            down = if (pairingUrl != null) cancelPairingFocus else saveFocus
                         },
                 ) {
-                    Text("Save & continue")
+                    Text("Pair from phone")
                 }
 
-                OutlinedButton(
-                    onClick = onDone,
-                    modifier = Modifier.focusRequester(skipFocus).focusProperties { up = saveFocus },
-                ) {
-                    Text("Skip for now")
+                if (pairingError != null) {
+                    Text(pairingError!!, modifier = Modifier.padding(top = 16.dp))
+                }
+
+                if (pairingUrl != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        modifier = Modifier
+                            .padding(top = 24.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(24.dp),
+                    ) {
+                        QrCodeImage(
+                            content = pairingUrl!!,
+                            modifier = Modifier.size(160.dp).background(Color.White).padding(12.dp),
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Scan with your phone (same Wi-Fi as the TV), or visit:")
+                            Text(pairingUrl!!, style = MaterialTheme.typography.bodyLarge)
+                            Text("Paste the relay URL there and it'll appear here automatically.")
+                            OutlinedButton(
+                                onClick = {
+                                    pairingServer?.stop()
+                                    pairingServer = null
+                                    pairingUrl = null
+                                },
+                                colors = whiteOutlinedButtonColors(),
+                                modifier = Modifier
+                                    .focusRequester(cancelPairingFocus)
+                                    .focusProperties {
+                                        up = pairButtonFocus
+                                        down = saveFocus
+                                    },
+                            ) {
+                                Text("Cancel")
+                            }
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.padding(top = 32.dp)) {
+                    Button(
+                        onClick = { scope.launch { saveAndContinue() } },
+                        enabled = relayUrl.isNotBlank(),
+                        colors = whiteButtonColors(),
+                        border = neonPurpleButtonBorder(),
+                        glow = neonPurpleButtonGlow(),
+                        modifier = Modifier
+                            .focusRequester(saveFocus)
+                            .focusProperties {
+                                up = if (pairingUrl != null) cancelPairingFocus else pairButtonFocus
+                                down = skipFocus
+                            },
+                    ) {
+                        Text("Save & continue")
+                    }
+
+                    OutlinedButton(
+                        onClick = onDone,
+                        colors = whiteOutlinedButtonColors(),
+                        modifier = Modifier.focusRequester(skipFocus).focusProperties { up = saveFocus },
+                    ) {
+                        Text("Skip for now")
+                    }
                 }
             }
         }
+        NeonScrollbar(scrollState = scrollState, modifier = Modifier.padding(start = 12.dp))
     }
 }

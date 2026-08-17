@@ -33,7 +33,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Surface
@@ -52,6 +51,8 @@ import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
+import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
+import com.moviesshumtimes.tv.ui.theme.whiteOutlinedButtonColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.net.URI
@@ -162,7 +163,7 @@ fun LobbyScreen(
                         relay.send(RelayEvent(kind = "start", fromPeerId = relay.myPeerId, username = localUsername))
                         onStart()
                     },
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    colors = whiteButtonColors(),
                     border = neonPurpleButtonBorder(),
                     glow = neonPurpleButtonGlow(),
                 ) {
@@ -171,7 +172,7 @@ fun LobbyScreen(
 
                 Button(
                     onClick = { showChatModal = true },
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    colors = whiteButtonColors(),
                     border = neonPurpleButtonBorder(),
                     glow = neonPurpleButtonGlow(),
                 ) {
@@ -253,6 +254,7 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
             // actions elsewhere (Start, Save & continue).
             OutlinedButton(
                 onClick = onDismiss,
+                colors = whiteOutlinedButtonColors(),
                 modifier = Modifier.padding(top = 28.dp).focusRequester(closeFocusRequester),
             ) {
                 Text("Close")

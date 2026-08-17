@@ -38,7 +38,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.FilterChip
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
@@ -54,9 +53,10 @@ import com.moviesshumtimes.tv.data.settings.SettingsStore
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
-import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
+import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
+import com.moviesshumtimes.tv.ui.theme.whiteOutlinedButtonColors
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -209,7 +209,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                             pairingError = "Couldn't find a Wi-Fi address — is the TV connected to a network?"
                         }
                     },
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    colors = whiteButtonColors(),
                     border = neonPurpleButtonBorder(),
                     glow = neonPurpleButtonGlow(),
                     modifier = Modifier
@@ -251,6 +251,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                                     pairingServer = null
                                     pairingUrl = null
                                 },
+                                colors = whiteOutlinedButtonColors(),
                                 modifier = Modifier
                                     .focusRequester(cancelPairingFocus)
                                     .focusProperties {
@@ -308,7 +309,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                         onSaved()
                     }
                 },
-                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                colors = whiteButtonColors(),
                 border = neonPurpleButtonBorder(),
                 glow = neonPurpleButtonGlow(),
                 modifier = Modifier

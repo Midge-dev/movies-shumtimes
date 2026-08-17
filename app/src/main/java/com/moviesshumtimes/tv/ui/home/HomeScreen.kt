@@ -1,6 +1,7 @@
 package com.moviesshumtimes.tv.ui.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,6 +37,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -47,7 +49,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.StandardCardContainer
@@ -63,6 +64,7 @@ import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
+import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
 
 private const val TYPE_EPISODE = "episode"
 
@@ -107,7 +109,14 @@ fun HomeScreen(
     // screen feel "static" (D-pad down had nowhere visible to go once
     // Continue Watching's row scrolled past the bottom edge). LazyColumn's
     // focus-driven scroll-into-view is what makes Down actually work here.
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        // Without this the Suggestions row (always last) sat flush against
+        // the screen edge — no row after it to supply trailing space, unlike
+        // Continue Watching/Recently Added which get breathing room from the
+        // row below them.
+        contentPadding = PaddingValues(bottom = 48.dp),
+    ) {
         item {
             Text(
                 text = "Continue Watching",
@@ -325,7 +334,23 @@ private fun ContinueWatchingPoster(
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(8.dp))
-                    .then(if (focused) Modifier.border(2.dp, NeonPurpleGlow, RoundedCornerShape(8.dp)) else Modifier)
+                    // Same two-tone gradient as neonPurpleCardBorder() below
+                    // (RecentlyAdded/Suggestions posters, ShowSeasons/
+                    // ShowEpisodes/LibraryScreen) — this one's hand-rolled
+                    // since Card has no onLongClick to hang the remove
+                    // gesture off of, but the focus border should still
+                    // match every other poster's, not fall back to a flat
+                    // single-tone border.
+                    .then(
+                        if (focused) {
+                            Modifier.border(
+                                BorderStroke(2.dp, Brush.radialGradient(listOf(NeonPurpleGlow, NeonPurple))),
+                                RoundedCornerShape(8.dp),
+                            )
+                        } else {
+                            Modifier
+                        },
+                    )
                     .focusGroup()
                     .onFocusChanged { state ->
                         focused = state.isFocused
@@ -438,12 +463,12 @@ private fun RemoveConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onConfirm,
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    colors = whiteButtonColors(),
                     border = neonPurpleButtonBorder(),
                     glow = neonPurpleButtonGlow(),
                     modifier = Modifier.focusRequester(removeFocus),
                 ) { Text("Remove") }
-                Button(onClick = onCancel) { Text("Cancel") }
+                Button(onClick = onCancel, colors = whiteButtonColors()) { Text("Cancel") }
             }
         }
     }

@@ -22,7 +22,7 @@ object PlexPlayerFactory {
     ): ExoPlayer =
         ExoPlayer.Builder(context).build().apply {
             if (decision is PlaybackDecision.DirectPlay) {
-                trackSelectionParameters = subtitleTrackSelectionParameters(trackSelectionParameters, decision)
+                applySubtitleSelection(this, decision)
             }
             setMediaItem(buildMediaItem(server, decision, maxVideoBitrateKbps))
             prepare()
@@ -30,6 +30,13 @@ object PlexPlayerFactory {
             playWhenReady = true
         }
 
+    // Applies (or re-applies) subtitle selection on an already-running
+    // player without touching its MediaItem — direct play is one continuous
+    // ExoPlayer session, so switching between two demuxed text tracks (or
+    // off) is just a trackSelectionParameters update, no reload needed. Only
+    // a burn-required stream, or leaving one, needs a whole new player/
+    // transcode session — see PlayerScreen's playerIdentity key.
+    //
     // ExoPlayer doesn't know about Plex stream ids — it only sees whatever
     // text tracks the container's own extractor demuxes. Steering selection
     // by language code (rather than trying to map a Plex stream id to a
@@ -37,14 +44,11 @@ object PlexPlayerFactory {
     // format inspection, and is good enough short of two same-language
     // non-forced tracks in one file, which Plex clients targeting arbitrary
     // media generally accept as a known limitation too.
-    private fun subtitleTrackSelectionParameters(
-        base: TrackSelectionParameters,
-        decision: PlaybackDecision.DirectPlay,
-    ): TrackSelectionParameters {
-        val builder = base.buildUpon()
+    fun applySubtitleSelection(player: ExoPlayer, decision: PlaybackDecision.DirectPlay) {
+        val builder = player.trackSelectionParameters.buildUpon()
         val chosen = decision.part.streams
             .firstOrNull { it.streamType == SUBTITLE_STREAM_TYPE && it.id == decision.subtitleStreamId }
-        return if (chosen == null) {
+        player.trackSelectionParameters = if (chosen == null) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
         } else {
             builder

@@ -12,8 +12,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +69,7 @@ import com.moviesshumtimes.tv.sync.ConnectionState
 import com.moviesshumtimes.tv.sync.PlaybackPhase
 import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.SyncViewModel
+import com.moviesshumtimes.tv.ui.common.AppLoadingIndicator
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
@@ -122,13 +126,21 @@ fun PlayerScreen(
         decidePlayback(detail, subtitleStreamId, currentSettings.forceBurnSubtitles)
     }
 
-    // Switching between a directly-played text track and a burn-required one
-    // (or back) needs a real new ExoPlayer/transcode session — there's no
-    // live "swap the subtitle" API on an existing session. key() tears down
-    // and rebuilds the whole player subtree on any decision change, picking
-    // up wherever playback left off via restartPositionMs (captured from the
-    // outgoing player right before the switch, in onSelectSubtitle below).
-    key(decision) {
+    // Only a mode change — direct play <-> a burn-required transcode, or a
+    // different burn-required stream — needs a whole new ExoPlayer/transcode
+    // session; there's no live "swap the subtitle" API on an existing
+    // session. Switching between two directly-played text tracks (or off)
+    // doesn't touch this key, so PlayerSession patches the running player in
+    // place instead of restarting it — see its own LaunchedEffect(decision).
+    // key() tears down and rebuilds only when playerIdentity itself changes,
+    // picking up wherever playback left off via restartPositionMs (captured
+    // from the outgoing player right before the switch, in onSelectSubtitle
+    // below).
+    val playerIdentity = when (decision) {
+        is PlaybackDecision.Transcode -> decision
+        is PlaybackDecision.DirectPlay -> decision.part.id
+    }
+    key(playerIdentity) {
         PlayerSession(
             server = server,
             detail = detail,
@@ -168,7 +180,13 @@ private fun PlayerSession(
     val scope = rememberCoroutineScope()
 
     val reporter = remember(server, clientIdentifier) { TimelineReporter(server, clientIdentifier) }
-    val player = remember(decision) {
+    // Deliberately keyless: this player is scoped to this PlayerSession's
+    // whole lifetime (one per playerIdentity, per the parent's key()), so it
+    // should only ever be built once from whatever `decision`/
+    // `startPositionMs` were current at that first composition — later
+    // direct-play subtitle changes arrive as recompositions of the same
+    // `decision` parameter and are applied live below instead.
+    val player = remember {
         PlexPlayerFactory.create(
             context = context,
             server = server,
@@ -178,6 +196,11 @@ private fun PlayerSession(
         )
     }
     LaunchedEffect(player) { onPlayerCreated(player) }
+    LaunchedEffect(decision) {
+        if (decision is PlaybackDecision.DirectPlay) {
+            PlexPlayerFactory.applySubtitleSelection(player, decision)
+        }
+    }
 
     val sync = remember(player) { SyncViewModel(player, relay, scope) }
     val connectionState by sync.connectionState.collectAsState()
@@ -277,23 +300,26 @@ private fun PlayerSession(
                 val controllerHidden = playerView?.isControllerFullyVisible == false
                 val isFreshKeyDown = keyEvent.type == KeyEventType.KeyDown &&
                     keyEvent.nativeKeyEvent.repeatCount == 0
-                // Reveal-only, and only while hidden. A previous version of
-                // this also hijacked Select once the controller was already
-                // visible to toggle play/pause directly, on the theory that
-                // native dispatch couldn't be trusted to reach the focused
-                // button — that was wrong, and it broke every other button
-                // in the controller (settings, prev/next): whatever had
-                // focus, Select just toggled playback instead of activating
-                // it. Once visible, every key falls through (false) to
-                // native dispatch, which already correctly routes to
-                // whatever's focused — that's how seeking via the timebar's
-                // own key listener has worked the whole time.
+                // Reveal, but never swallow. A previous version of this
+                // consumed the revealing keypress (returned true), which
+                // meant a hidden-controller press only showed it — the same
+                // D-pad press that revealed it didn't also move focus, so
+                // every reveal cost an extra press before navigation did
+                // anything. Calling showController() here and still falling
+                // through to native dispatch (false) lets the very same
+                // press both reveal the controls and land on/move the
+                // focused button in one motion — nothing gets *activated* by
+                // this, since a plain directional key only moves focus and
+                // Select only activates whatever's already focused (that's
+                // still how it's always worked; a still-earlier version
+                // hijacked Select to toggle play/pause directly instead of
+                // letting native dispatch route it to the focused button,
+                // which broke every other button in the controller — that
+                // mistake isn't being reintroduced here).
                 if (isFreshKeyDown && (isSelect || isDirectional) && controllerHidden) {
                     playerView?.showController()
-                    true
-                } else {
-                    false
                 }
+                false
             }
             .focusable(),
     ) {
@@ -390,7 +416,7 @@ private fun PlayerSession(
             },
         )
         if (isBuffering) {
-            BufferingSpinner(modifier = Modifier.align(Alignment.Center))
+            AppLoadingIndicator(modifier = Modifier.align(Alignment.Center))
         }
         if (controllerVisible) {
             Text(
@@ -468,25 +494,35 @@ private fun SubtitleMenu(
     Column(
         modifier = modifier
             .width(360.dp)
+            .heightIn(max = 480.dp)
             .background(Color.Black.copy(alpha = 0.85f))
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(text = "Subtitles", color = Color.White, style = MaterialTheme.typography.titleMedium)
-        options.forEachIndexed { index, option ->
-            val selected = option.streamId == selectedStreamId
-            ListItem(
-                selected = selected,
-                onClick = { onSelect(option) },
-                headlineContent = { Text(option.label) },
-                leadingContent = { RadioButton(selected = selected, onClick = null) },
-                modifier = Modifier
-                    .focusRequester(focusRequesters[index])
-                    .focusProperties {
-                        up = if (index > 0) focusRequesters[index - 1] else FocusRequester.Default
-                        down = if (index < focusRequesters.lastIndex) focusRequesters[index + 1] else FocusRequester.Default
-                    },
-            )
+        // Plain Column had no height cap, so a title with many language
+        // tracks just grew past the screen edge — D-pad Down still moved
+        // focus onto those off-screen rows, but with nothing to auto-scroll
+        // the container, the highlight visually vanished. LazyColumn caps
+        // the visible height and scrolls the focused row into view on its
+        // own, the same way HomeScreen's rows already rely on for
+        // focus-driven scrolling.
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            itemsIndexed(options) { index, option ->
+                val selected = option.streamId == selectedStreamId
+                ListItem(
+                    selected = selected,
+                    onClick = { onSelect(option) },
+                    headlineContent = { Text(option.label) },
+                    leadingContent = { RadioButton(selected = selected, onClick = null) },
+                    modifier = Modifier
+                        .focusRequester(focusRequesters[index])
+                        .focusProperties {
+                            up = if (index > 0) focusRequesters[index - 1] else FocusRequester.Default
+                            down = if (index < focusRequesters.lastIndex) focusRequesters[index + 1] else FocusRequester.Default
+                        },
+                )
+            }
         }
     }
 }

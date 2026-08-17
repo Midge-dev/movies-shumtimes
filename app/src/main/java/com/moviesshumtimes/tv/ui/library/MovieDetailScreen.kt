@@ -19,16 +19,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
-import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
+import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
 
 @Composable
 fun MovieDetailScreen(
@@ -71,7 +70,7 @@ fun MovieDetailScreen(
             }
             Button(
                 onClick = onPlay,
-                colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                colors = whiteButtonColors(),
                 border = neonPurpleButtonBorder(),
                 glow = neonPurpleButtonGlow(),
                 modifier = Modifier.padding(top = 24.dp).focusRequester(playFocus),

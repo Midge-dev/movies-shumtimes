@@ -73,3 +73,52 @@ running setup details, decisions, and gotchas as we build.
   `VectorDrawable`s work fine as placeholders (`app/src/main/res/drawable/tv_banner.xml`,
   `ic_launcher_background.xml` / `ic_launcher_foreground.xml`). Swap for real
   artwork later.
+
+## Material 3 component audit (2026-08-17)
+
+Goal: use Material 3 components everywhere possible. Scanned every `import`
+across `app/src/main/java` for non-M3 UI. Findings below.
+
+**Non-M3 imports: none found**, except one deliberate, already-approved
+exception — `ui/common/AppLoadingIndicator.kt` pulls `ContainedLoadingIndicator`
+from the base (non-TV) `androidx.compose.material3` library, pinned to
+`1.5.0-alpha18` (see `libs.versions.toml` for why that exact version), because
+tv-material3 has no loading indicator of any kind. Every other screen is
+`androidx.tv.material3` only. `androidx.compose.material.icons.*` shows up
+everywhere too, but that's just the icon pack (no TV-specific equivalent
+exists, and it isn't a "component" in the same sense).
+
+**tv-material3 component families currently in use:** Button/OutlinedButton,
+Card/StandardCardContainer, FilterChip, Icon, ListItem, ModalNavigationDrawer/
+NavigationDrawerItem, RadioButton, Surface, Switch, Text.
+
+**tv-material3 component families available (1.1.0) but never used:**
+Carousel, Checkbox, IconButton, Tab/TabRow, WideButton. Worth a look before
+building anything new by hand — e.g. `IconButton` might be a cleaner base for
+one-off icon-only actions than a bare `Icon` + `.clickable`, `Carousel` could
+replace a hand-rolled hero rotator if one ever gets built.
+
+**Hand-rolled UI that exists because tv-material3 has *no* equivalent at
+all** (confirmed by listing every top-level composable in the 1.1.0 aar —
+this isn't a case of skipping an available component):
+- `ui/common/NeonScrollbar.kt` — custom `Canvas`-drawn scrollbar; tv-material3
+  ships no scrollbar/scrollbar-indicator of any kind.
+- `ui/common/KeyboardOnSelect.kt` (`ClickToTypeTextField`) — wraps Compose
+  Foundation's `BasicTextField`; tv-material3 has no `TextField`.
+- `ui/common/ChatOverlay.kt` — toast-style fading message list; no
+  Snackbar/toast component in tv-material3.
+- `ui/player/PlayerScreen.kt`'s `SubtitleMenu` and `ui/home/HomeScreen.kt`'s
+  `RemoveConfirmOverlay` — custom `Column`/`Box` panels standing in for a
+  dialog; tv-material3 has no Dialog/BottomSheet/ModalDrawer-as-dialog
+  component (`ModalNavigationDrawer` is navigation-specific, not a general
+  dialog).
+- `ui/home/HomeScreen.kt`'s `ContinueWatchingPoster` — hand-rolled
+  `Box.combinedClickable` instead of `Card`, specifically because `Card` has
+  no `onLongClick` (needed for the remove gesture) — confirmed by decompiling
+  the library; not a stylistic choice.
+
+None of the above are fixable by swapping to a tv-material3 component that
+was overlooked — closing these would mean either pulling more pieces from
+the base (non-TV) `androidx.compose.material3` library (same move as the
+loading indicator) or accepting the hand-rolled versions as permanent. Real
+migration opportunities are the five unused-but-available families above.

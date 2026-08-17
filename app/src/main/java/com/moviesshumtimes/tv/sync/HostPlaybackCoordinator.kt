@@ -53,7 +53,18 @@ class HostPlaybackCoordinator(
 
     private var seq = 0
     private var phase = PlaybackPhase.LOADING
-    private var intendedPlaying = false
+    // Defaults true, not false: PlexPlayerFactory sets the ExoPlayer's own
+    // playWhenReady=true at construction time, before this coordinator's
+    // listener is even attached (that happens later, in SyncViewModel.start()
+    // -> host.start() -> player.addListener). onPlayWhenReadyChanged never
+    // fires for a change that occurred before the listener existed, so
+    // intendedPlaying starting false meant resolveAllReady() always took the
+    // "stay paused" branch on first load, no matter what the player itself
+    // was already set to do — every session required a manual play press to
+    // ever get going. Defaulting true matches what a freshly opened title
+    // should do anyway; requestPause() still overrides it the normal way if
+    // the user (or a peer) pauses before load finishes.
+    private var intendedPlaying = true
     private var localReady = false
     private var localBuffering = false
     private var localStalled = false

@@ -36,6 +36,7 @@ import com.moviesshumtimes.tv.data.plex.PlexAccount
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.plex.PlexEpisode
 import com.moviesshumtimes.tv.data.plex.PlexIdentity
+import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
 import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
@@ -50,6 +51,7 @@ import com.moviesshumtimes.tv.data.settings.RelayIdentityStore
 import com.moviesshumtimes.tv.data.settings.SettingsStore
 import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
+import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
 import com.moviesshumtimes.tv.ui.library.ShowEpisodesScreen
@@ -60,6 +62,11 @@ import com.moviesshumtimes.tv.ui.navigation.AppNavigationDrawer
 import com.moviesshumtimes.tv.ui.player.PlayerScreen
 import com.moviesshumtimes.tv.ui.settings.RelaySetupScreen
 import com.moviesshumtimes.tv.ui.settings.SettingsScreen
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -141,6 +148,19 @@ private sealed interface AppState {
         val suggestions: List<PlexOnDeckItem>,
     ) : AppState
     data class Library(val ctx: LibraryContext) : AppState
+    // Shown while a section switch is in flight — fetchLibraryItems plus
+    // preloadPosters (see below) can take a visible moment, and previously
+    // nothing changed on screen until both finished, reading as an
+    // unresponsive pause rather than a deliberate load. selectedSectionKey
+    // is the section being loaded *into*, so the nav drawer highlights the
+    // right destination while it waits rather than whatever was selected
+    // before.
+    data class LoadingSection(
+        val server: PlexServer,
+        val sections: List<PlexSection>,
+        val label: String,
+        val selectedSectionKey: String?,
+    ) : AppState
     // returnState mirrors Lobby/Player's field below — Settings is reachable
     // from Home now too, and Back needs to land wherever it was opened from
     // rather than always dumping into the Movies library.
@@ -231,6 +251,26 @@ private fun AppRoot() {
         relayClient = null
     }
 
+    // Warms Coil's cache for a section's first screenful of posters before
+    // handing control back to the caller, so LibraryScreen's grid appears
+    // already populated instead of popping in tile-by-tile while the loading
+    // screen is still the thing on-screen. Bounded to a fixed prefix — most
+    // libraries run into the hundreds of items, and only the first few rows
+    // are visible before any scrolling happens (5-column grid; four rows
+    // covers every screen size this app targets). A failed/slow fetch for
+    // any one poster just means that tile pops in normally later — this is
+    // a head start, not something the transition should ever block on
+    // indefinitely.
+    val posterPreloadImageLoader = SingletonImageLoader.get(context)
+    suspend fun preloadPosters(server: PlexServer, items: List<PlexLibraryItem>) {
+        coroutineScope {
+            items.take(20)
+                .mapNotNull { PlexImageUrl.of(server, it.thumb) }
+                .map { url -> async { runCatching { posterPreloadImageLoader.execute(ImageRequest.Builder(context).data(url).build()) } } }
+                .awaitAll()
+        }
+    }
+
     // Shared by both the nav drawer (any browsing screen) and the old
     // in-Library tab row it replaced — always lands back on Library, since
     // that's the one screen that actually renders a section's items.
@@ -242,10 +282,12 @@ private fun AppRoot() {
             state = AppState.Library(ctx)
             return
         }
+        state = AppState.LoadingSection(ctx.server, ctx.sections, section.title, section.key)
         scope.launch {
             val items = runCatching {
                 PlexServerApi(ctx.server, clientIdentifier).fetchLibraryItems(section.key)
             }.getOrElse { emptyList() }
+            preloadPosters(ctx.server, items)
             state = AppState.Library(ctx.copy(selectedSection = section, items = items))
         }
     }
@@ -253,10 +295,12 @@ private fun AppRoot() {
     // Home has no "currently selected section" to compare against the way
     // selectSection does, so a click there always fetches fresh.
     fun openSection(server: PlexServer, sections: List<PlexSection>, section: PlexSection) {
+        state = AppState.LoadingSection(server, sections, section.title, section.key)
         scope.launch {
             val items = runCatching {
                 PlexServerApi(server, clientIdentifier).fetchLibraryItems(section.key)
             }.getOrElse { emptyList() }
+            preloadPosters(server, items)
             state = AppState.Library(LibraryContext(server, sections, section, items))
         }
     }
@@ -267,6 +311,40 @@ private fun AppRoot() {
         val recentlyAdded = runCatching { api.fetchRecentlyAdded() }.getOrElse { emptyList() }
         val suggestions = runCatching { api.fetchSuggestions() }.getOrElse { emptyList() }
         return AppState.Home(server, sections, onDeck, recentlyAdded, suggestions)
+    }
+
+    // Every `state = current.returnState` restore below redisplays whatever
+    // Home/Library snapshot was fetched *before* the detour (Settings,
+    // MovieDetail, Lobby, Player…) started — potentially a while ago, and
+    // long enough for the cousin to have added something to the library
+    // mid-movie. Firing once here, right as that screen is restored, picks
+    // up anything new without polling continuously. A no-op for every other
+    // AppState (MovieDetail, ShowSeasons, …) — those aren't "the library
+    // listing" in the sense meant here, so passing one through unchanged is
+    // correct, not just harmless.
+    //
+    // Applied optimistically (old snapshot shown immediately, replaced once
+    // the fetch resolves) rather than blocking the transition on a network
+    // call. The `state == target` check guards against a slow refresh
+    // landing after the user has already navigated on elsewhere by the time
+    // it resolves.
+    suspend fun refreshReturnState(target: AppState): AppState = when (target) {
+        is AppState.Home -> loadHome(target.server, target.sections)
+        is AppState.Library -> {
+            val items = runCatching {
+                PlexServerApi(target.ctx.server, clientIdentifier).fetchLibraryItems(target.ctx.selectedSection.key)
+            }.getOrElse { target.ctx.items }
+            target.copy(ctx = target.ctx.copy(items = items))
+        }
+        else -> target
+    }
+
+    fun returnTo(target: AppState) {
+        state = target
+        scope.launch {
+            val refreshed = refreshReturnState(target)
+            if (state == target) state = refreshed
+        }
     }
 
     // Optimistic + fire-and-forget, matching TimelineReporter's established
@@ -291,7 +369,7 @@ private fun AppRoot() {
         state = runCatching {
             val selectedServerId = SettingsStore.observe(context).first().selectedServerId
             val server = PlexResourcesApi(clientIdentifier).findReachableServer(token, selectedServerId)
-                ?: error("No reachable Plex server found — is the cousin's server online?")
+                ?: error("No reachable Plex server found — make sure it's online and reachable on this network.")
             val serverApi = PlexServerApi(server, clientIdentifier)
             val sections = serverApi.fetchSections()
             val firstSection = sections.firstOrNull()
@@ -313,8 +391,8 @@ private fun AppRoot() {
     }
 
     when (val current = state) {
-        is AppState.Checking -> Text("Loading…")
-        is AppState.ConnectingToServer -> Text(
+        is AppState.Checking -> LoadingScreen("Loading…")
+        is AppState.ConnectingToServer -> LoadingScreen(
             current.username?.let { "Logged in as $it — connecting to library…" } ?: "Connecting to library…",
         )
         is AppState.LoggedOut -> AuthScreen(onLoggedIn = { token -> scope.launch { connect(token) } })
@@ -421,6 +499,19 @@ private fun AppRoot() {
                 },
             )
         }
+        is AppState.LoadingSection -> AppNavigationDrawer(
+            sections = current.sections,
+            selectedSectionKey = current.selectedSectionKey,
+            isSettingsSelected = false,
+            isHomeSelected = false,
+            onSelectSection = {},
+            onOpenSettings = {},
+            onOpenHome = {},
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                LoadingScreen("Loading ${current.label}…")
+            }
+        }
         is AppState.Settings -> AppNavigationDrawer(
             sections = current.ctx.sections,
             selectedSectionKey = current.ctx.selectedSection.key,
@@ -433,10 +524,10 @@ private fun AppRoot() {
             SettingsScreen(
                 accountToken = accountToken ?: "",
                 clientIdentifier = clientIdentifier,
-                onBack = { state = current.returnState },
+                onBack = { returnTo(current.returnState) },
                 onSaved = {
                     val token = accountToken
-                    if (token != null) scope.launch { connect(token) } else state = current.returnState
+                    if (token != null) scope.launch { connect(token) } else returnTo(current.returnState)
                 },
             )
         }
@@ -453,7 +544,7 @@ private fun AppRoot() {
                 server = current.ctx.server,
                 movie = current.movie,
                 isShow = current.ctx.selectedSection.type == SECTION_TYPE_SHOW,
-                onBack = { state = current.returnState },
+                onBack = { returnTo(current.returnState) },
                 onPlay = {
                     scope.launch {
                         val serverApi = PlexServerApi(current.ctx.server, clientIdentifier)
@@ -570,7 +661,7 @@ private fun AppRoot() {
                 onStart = { state = AppState.Player(current.server, current.detail, current.returnState, current.relay) },
                 onBack = {
                     releaseRelayClient()
-                    state = current.returnState
+                    returnTo(current.returnState)
                 },
             )
         }
@@ -582,7 +673,7 @@ private fun AppRoot() {
                 relay = current.relay,
                 onExit = {
                     releaseRelayClient()
-                    state = current.returnState
+                    returnTo(current.returnState)
                 },
             )
         }

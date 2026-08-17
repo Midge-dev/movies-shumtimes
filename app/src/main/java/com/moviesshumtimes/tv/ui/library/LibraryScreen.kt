@@ -38,7 +38,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
 import androidx.tv.material3.FilterChip
 import androidx.tv.material3.MaterialTheme
@@ -50,9 +49,9 @@ import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
-import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
+import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
 import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
 
@@ -129,14 +128,14 @@ fun LibraryScreen(
                             SortMode.DATE_ADDED -> SortMode.TITLE
                         }
                     },
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    colors = whiteButtonColors(),
                     border = neonPurpleButtonBorder(),
                     glow = neonPurpleButtonGlow(),
                     modifier = Modifier.focusRequester(sortButtonFocus).focusProperties { up = searchFocus },
                 ) { Text("Sort: ${sortMode.label}") }
                 Button(
                     onClick = { filtersExpanded = true },
-                    colors = ButtonDefaults.colors(focusedContainerColor = NeonPurple),
+                    colors = whiteButtonColors(),
                     border = neonPurpleButtonBorder(),
                     glow = neonPurpleButtonGlow(),
                 ) { Text(if (filtersExpanded) "[Filter]" else "Filter") }
