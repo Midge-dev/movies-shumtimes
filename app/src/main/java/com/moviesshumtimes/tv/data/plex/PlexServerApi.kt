@@ -91,15 +91,21 @@ private data class EpisodesMediaContainer(@SerialName("Metadata") val items: Lis
 @Serializable
 private data class EpisodesResponse(@SerialName("MediaContainer") val mediaContainer: EpisodesMediaContainer)
 
-// streamType: 1 = video, 2 = audio, 3 = subtitle.
+// streamType: 1 = video, 2 = audio, 3 = subtitle. id is the value the Plex
+// API calls subtitleStreamID elsewhere (universal transcode's subtitle
+// picker param) — distinct from index, which is just this stream's
+// position within the container.
 @Serializable
 data class PlexStream(
+    val id: Long = 0,
     val streamType: Int,
     val codec: String? = null,
     val language: String? = null,
+    val languageCode: String? = null,
     val key: String? = null,
     val index: Int? = null,
     val selected: Boolean = false,
+    val forced: Boolean = false,
 )
 
 @Serializable
