@@ -16,6 +16,25 @@ android {
         versionName = "0.1"
     }
 
+    // Checked into the repo (debug-only key, not the release signing
+    // identity — fine to commit) so every debug build, whether built
+    // locally or by CI on a fresh runner, signs identically. Without this,
+    // AGP falls back to each machine's own implicit ~/.android/debug.keystore
+    // — stable within one machine, but CI has no persisted keystore at all,
+    // so it minted a brand new random one on every run. Installing a
+    // differently-signed APK over an existing one forces an uninstall
+    // first, wiping the Plex login/relay URL/reconnect token — this is what
+    // was happening whenever a CI build and a local build (or two different
+    // CI runs) met on the same device.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

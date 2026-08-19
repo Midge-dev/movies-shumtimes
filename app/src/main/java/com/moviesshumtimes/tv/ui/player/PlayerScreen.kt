@@ -1,22 +1,28 @@
 package com.moviesshumtimes.tv.ui.player
 
-import android.view.ContextThemeWrapper
 import android.view.KeyEvent
-import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -32,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -49,11 +54,12 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
+import androidx.tv.material3.Icon
+import androidx.tv.material3.IconButton
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.RadioButton
 import androidx.tv.material3.Text
-import com.moviesshumtimes.tv.R
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.settings.AppSettings
@@ -71,13 +77,21 @@ import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.SyncViewModel
 import com.moviesshumtimes.tv.ui.common.AppLoadingIndicator
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
+import com.moviesshumtimes.tv.ui.theme.AppScrim
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
+import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
+import com.moviesshumtimes.tv.ui.theme.whiteIconButtonColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val REPORT_INTERVAL_MS = 5_000L
+private const val CONTROLS_HIDE_DELAY_MS = 3_000L
+private const val PROGRESS_POLL_INTERVAL_MS = 200L
+private const val SKIP_INCREMENT_MS = 10_000L
 
 // Held-seek acceleration: a single tap moves 10s, but the step grows the
 // longer the button stays down (event.repeatCount climbs each ~50ms while
@@ -99,6 +113,7 @@ fun PlayerScreen(
     onExit: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var settings by remember { mutableStateOf<AppSettings?>(null) }
 
     LaunchedEffect(Unit) {
@@ -126,18 +141,21 @@ fun PlayerScreen(
         decidePlayback(detail, subtitleStreamId, currentSettings.forceBurnSubtitles)
     }
 
-    // Only a mode change — direct play <-> a burn-required transcode, or a
-    // different burn-required stream — needs a whole new ExoPlayer/transcode
-    // session; there's no live "swap the subtitle" API on an existing
-    // session. Switching between two directly-played text tracks (or off)
-    // doesn't touch this key, so PlayerSession patches the running player in
-    // place instead of restarting it — see its own LaunchedEffect(decision).
-    // key() tears down and rebuilds only when playerIdentity itself changes,
-    // picking up wherever playback left off via restartPositionMs (captured
-    // from the outgoing player right before the switch, in onSelectSubtitle
-    // below).
+    // Only a mode change — direct play <-> a burn-required transcode, a
+    // different burn-required stream, or (while transcoding) a different
+    // bitrate — needs a whole new ExoPlayer/transcode session; there's no
+    // live "swap the subtitle" or "reopen the HLS session at a new bitrate"
+    // API on an existing session. Switching between two directly-played text
+    // tracks (or off) doesn't touch this key, so PlayerSession patches the
+    // running player in place instead of restarting it — see its own
+    // LaunchedEffect(decision). Bitrate is likewise irrelevant to direct
+    // play (it only ever feeds buildTranscodeUrl), so it's left out of that
+    // branch's identity. key() tears down and rebuilds only when
+    // playerIdentity itself changes, picking up wherever playback left off
+    // via restartPositionMs (captured from the outgoing player right before
+    // the switch, in onSelectSubtitle/onSelectBitrate below).
     val playerIdentity = when (decision) {
-        is PlaybackDecision.Transcode -> decision
+        is PlaybackDecision.Transcode -> decision to currentSettings.maxVideoBitrateKbps
         is PlaybackDecision.DirectPlay -> decision.part.id
     }
     key(playerIdentity) {
@@ -149,12 +167,19 @@ fun PlayerScreen(
             clientIdentifier = clientIdentifier,
             relay = relay,
             maxVideoBitrateKbps = currentSettings.maxVideoBitrateKbps,
+            showChatOverlay = currentSettings.showChatOverlay,
             subtitleOptions = subtitleChoices,
             selectedSubtitleStreamId = subtitleStreamId,
             onPlayerCreated = { activePlayer = it },
             onSelectSubtitle = { option ->
                 activePlayer?.let { restartPositionMs = it.currentPosition }
                 subtitleStreamId = option.streamId
+            },
+            onSelectBitrate = { kbps ->
+                activePlayer?.let { restartPositionMs = it.currentPosition }
+                val updated = currentSettings.copy(maxVideoBitrateKbps = kbps)
+                settings = updated
+                scope.launch { SettingsStore.save(context, updated) }
             },
             onExit = onExit,
         )
@@ -170,10 +195,12 @@ private fun PlayerSession(
     clientIdentifier: String,
     relay: RelayClient?,
     maxVideoBitrateKbps: Int,
+    showChatOverlay: Boolean,
     subtitleOptions: List<SubtitleOption>,
     selectedSubtitleStreamId: Long?,
     onPlayerCreated: (ExoPlayer) -> Unit,
     onSelectSubtitle: (SubtitleOption) -> Unit,
+    onSelectBitrate: (Int) -> Unit,
     onExit: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -206,32 +233,79 @@ private fun PlayerSession(
     val connectionState by sync.connectionState.collectAsState()
     val phase by sync.phase.collectAsState()
     val waitingOn by sync.waitingOn.collectAsState()
-    var controllerVisible by remember { mutableStateOf(true) }
+
+    // Everything below owns the on-screen chrome entirely in Compose — no
+    // Media3 PlayerControlView involved (useController=false on the
+    // PlayerView further down). PlayerControlView's own key-swallowing,
+    // auto-show/hide timing, and per-button enabled-state logic were fighting
+    // this screen's own state at every turn (a D-pad press while its
+    // controller wasn't yet "fully visible" got silently eaten, and its
+    // subtitle button re-grayed itself any time ExoPlayer reported zero
+    // native text tracks — exactly the burn-required/transcoded cases this
+    // app's own subtitle picker exists for). Owning the whole surface here
+    // means there's only ever one system deciding what a keypress does.
+    var controlsVisible by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
-    var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var subtitleMenuOpen by remember { mutableStateOf(false) }
+    var bitrateMenuOpen by remember { mutableStateOf(false) }
+    // Greets the user with focus already on Play/Pause, same as every show()
+    // afterward — see the onPreviewKeyEvent handler below for the reveal
+    // paths that re-arm this.
+    var pendingPlayPauseFocus by remember { mutableStateOf(true) }
+    // Bumped on every interaction while controls are visible so the auto-hide
+    // effect below restarts its delay — without this, holding a seek or
+    // browsing the transport row for longer than the hide delay would still
+    // yank the chrome away mid-interaction.
+    var interactionTick by remember { mutableStateOf(0) }
+    var seekBar by remember { mutableStateOf<DefaultTimeBar?>(null) }
     val screenFocusRequester = remember { FocusRequester() }
+    val playPauseFocusRequester = remember { FocusRequester() }
 
-    // PlayerView.dispatchKeyEvent() short-circuits every D-pad key while its
-    // controller is hidden, showing it and swallowing the event before a
-    // native key listener on the view ever sees it (confirmed by inspecting
-    // its bytecode: it returns early for KEYCODE_DPAD_CENTER without calling
-    // any child dispatch). Intercepting one layer up, in Compose, sidesteps
-    // that entirely — this fires during the tunnel/preview phase before the
-    // event ever reaches the embedded native view.
-    LaunchedEffect(Unit) { screenFocusRequester.requestFocus() }
+    fun togglePlayPause() {
+        if (player.isPlaying) player.pause() else player.play()
+    }
 
-    // Media3's own controllerShowTimeoutMs only reschedules the hide on an
-    // isPlaying state *change* — if the movie is already playing by the time
-    // the controller first shows (the normal case entering from the Lobby),
-    // that timer never gets armed and the controller (and our title/sync
-    // overlays, which key off the same controllerVisible flag) sit onscreen
-    // until a real pause/play toggle happens to trigger it. Driving the hide
-    // ourselves sidesteps relying on that internal scheduling.
-    LaunchedEffect(controllerVisible) {
-        if (controllerVisible) {
-            delay(3_000)
-            playerView?.hideController()
+    fun seekBy(deltaMs: Long) {
+        val target = (player.currentPosition + deltaMs).coerceIn(0, player.duration.coerceAtLeast(0))
+        player.seekTo(target)
+    }
+
+    LaunchedEffect(pendingPlayPauseFocus) {
+        if (pendingPlayPauseFocus) {
+            runCatching { playPauseFocusRequester.requestFocus() }
+            pendingPlayPauseFocus = false
+        }
+    }
+
+    // Focus has nowhere to live once the controls row leaves composition —
+    // hand it back to the screen root so the hidden-state branch of
+    // onPreviewKeyEvent below keeps receiving D-pad events.
+    LaunchedEffect(controlsVisible) {
+        if (!controlsVisible) screenFocusRequester.requestFocus()
+    }
+
+    // Media3's own auto-hide only reschedules on an isPlaying state *change*;
+    // driving it here off both playback state and every interaction avoids
+    // relying on that internal scheduling and fixes the "hides itself mid
+    // scrub" case interactionTick exists for.
+    LaunchedEffect(controlsVisible, subtitleMenuOpen, bitrateMenuOpen, isPlaying, interactionTick) {
+        if (controlsVisible && !subtitleMenuOpen && !bitrateMenuOpen) {
+            delay(CONTROLS_HIDE_DELAY_MS)
+            controlsVisible = false
+        }
+    }
+
+    // Drives the seek bar's position/buffered/duration while it's on screen;
+    // nothing else calls setPosition on it now that there's no
+    // PlayerControlView update loop underneath.
+    LaunchedEffect(controlsVisible, player) {
+        if (!controlsVisible) return@LaunchedEffect
+        while (true) {
+            seekBar?.setDuration(player.duration.coerceAtLeast(0))
+            seekBar?.setPosition(player.currentPosition.coerceAtLeast(0))
+            seekBar?.setBufferedPosition(player.bufferedPosition.coerceAtLeast(0))
+            delay(PROGRESS_POLL_INTERVAL_MS)
         }
     }
 
@@ -272,6 +346,10 @@ private fun PlayerSession(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
             }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
         }
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
@@ -289,36 +367,47 @@ private fun PlayerSession(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(AppScrim)
             .focusRequester(screenFocusRequester)
             .onPreviewKeyEvent { keyEvent ->
-                val isSelect = keyEvent.key == Key.DirectionCenter || keyEvent.key == Key.Enter
-                val isDirectional = keyEvent.key == Key.DirectionUp ||
-                    keyEvent.key == Key.DirectionDown ||
-                    keyEvent.key == Key.DirectionLeft ||
-                    keyEvent.key == Key.DirectionRight
-                val controllerHidden = playerView?.isControllerFullyVisible == false
-                val isFreshKeyDown = keyEvent.type == KeyEventType.KeyDown &&
-                    keyEvent.nativeKeyEvent.repeatCount == 0
-                // Reveal, but never swallow. A previous version of this
-                // consumed the revealing keypress (returned true), which
-                // meant a hidden-controller press only showed it — the same
-                // D-pad press that revealed it didn't also move focus, so
-                // every reveal cost an extra press before navigation did
-                // anything. Calling showController() here and still falling
-                // through to native dispatch (false) lets the very same
-                // press both reveal the controls and land on/move the
-                // focused button in one motion — nothing gets *activated* by
-                // this, since a plain directional key only moves focus and
-                // Select only activates whatever's already focused (that's
-                // still how it's always worked; a still-earlier version
-                // hijacked Select to toggle play/pause directly instead of
-                // letting native dispatch route it to the focused button,
-                // which broke every other button in the controller — that
-                // mistake isn't being reintroduced here).
-                if (isFreshKeyDown && (isSelect || isDirectional) && controllerHidden) {
-                    playerView?.showController()
+                if (subtitleMenuOpen || bitrateMenuOpen || keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isFreshKeyDown = keyEvent.nativeKeyEvent.repeatCount == 0
+                if (!controlsVisible) {
+                    when (keyEvent.key) {
+                        // Netflix/YouTube-style: seeking while the chrome is
+                        // hidden doesn't require revealing it first — the
+                        // chrome is a navigation aid, not a gate in front of
+                        // the single most common remote gesture.
+                        Key.DirectionLeft, Key.DirectionRight -> {
+                            val direction = if (keyEvent.key == Key.DirectionRight) 1 else -1
+                            seekBy(direction * seekIncrementForHold(keyEvent.nativeKeyEvent.repeatCount))
+                            return@onPreviewKeyEvent true
+                        }
+                        // Select is the deliberate "reveal and act" gesture —
+                        // toggling playback in the same press it reveals the
+                        // chrome matches what a remote's OK button does on
+                        // every other TV player.
+                        Key.DirectionCenter, Key.Enter -> {
+                            if (isFreshKeyDown) {
+                                togglePlayPause()
+                                controlsVisible = true
+                                pendingPlayPauseFocus = true
+                                return@onPreviewKeyEvent true
+                            }
+                        }
+                        // Up/Down don't have an obvious hidden-state meaning
+                        // of their own — just reveal and focus, one press.
+                        Key.DirectionUp, Key.DirectionDown -> {
+                            if (isFreshKeyDown) {
+                                controlsVisible = true
+                                pendingPlayPauseFocus = true
+                                return@onPreviewKeyEvent true
+                            }
+                        }
+                    }
+                    return@onPreviewKeyEvent false
                 }
+                interactionTick++
                 false
             }
             .focusable(),
@@ -326,91 +415,12 @@ private fun PlayerSession(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = {
-                val themedContext = ContextThemeWrapper(context, R.style.PlayerControlsTheme)
-                PlayerView(themedContext).apply {
-                    useController = true
-                    controllerShowTimeoutMs = 3_000
-                    // Otherwise PlayerView re-shows the controller on its own
-                    // whenever playback state fires an event (buffering
-                    // blips, position updates), fighting our own hide timer
-                    // below and making the auto-hide effectively invisible
-                    // during normal viewing.
-                    controllerAutoShow = false
-                    setShowSubtitleButton(true)
+                PlayerView(context).apply {
+                    useController = false
                     this.player = player
-                    playerView = this
-                    // controllerAutoShow=false means Media3 won't show the
-                    // controller on its own even for the very first frame —
-                    // do that one show explicitly so title/controls still
-                    // greet the user on entry, same as before.
-                    showController()
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
-                    )
-                    // Deferred to post(): PlayerView's controller row isn't
-                    // guaranteed fully inflated/attached the instant this
-                    // apply{} block runs, and findViewById on a not-yet-ready
-                    // subtree silently no-ops instead of failing loudly.
-                    post {
-                        listOf(
-                            androidx.media3.ui.R.id.exo_play_pause,
-                            androidx.media3.ui.R.id.exo_prev,
-                            androidx.media3.ui.R.id.exo_next,
-                            androidx.media3.ui.R.id.exo_subtitle,
-                        ).forEach { id ->
-                            findViewById<View>(id)?.apply {
-                                background = ContextCompat.getDrawable(themedContext, R.drawable.exo_control_button_focus)
-                                foreground = null
-                            }
-                        }
-                        // Media3's own subtitle button only knows about
-                        // tracks ExoPlayer can already see in the current
-                        // MediaItem, so it can't offer streams that need a
-                        // server-side transcode to burn in (image-based
-                        // subs) — replacing its click behavior with our own
-                        // picker (built from Plex's full stream list, not
-                        // just ExoPlayer's) covers both cases in one place,
-                        // while keeping the button itself inside PlayerView's
-                        // already-working D-pad focus order alongside
-                        // play/pause/prev/next.
-                        findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.apply {
-                            visibility = View.VISIBLE
-                            isEnabled = true
-                            setOnClickListener {
-                                playerView?.hideController()
-                                subtitleMenuOpen = true
-                            }
-                        }
-                    }
-                    findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
-                        // DefaultTimeBar has no gradient-stroke concept like
-                        // the Compose two-tone borders elsewhere, so the
-                        // two-tone treatment here is the played fill in the
-                        // deeper NeonPurple with the scrubber (the focal,
-                        // "active" point) in the lighter NeonPurpleGlow —
-                        // same pairing, closest equivalent this component
-                        // supports.
-                        setPlayedColor(NeonPurple.toArgb())
-                        setScrubberColor(NeonPurpleGlow.toArgb())
-                        setOnKeyListener { _, keyCode, event ->
-                            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
-                            val direction = when (keyCode) {
-                                KeyEvent.KEYCODE_DPAD_RIGHT -> 1
-                                KeyEvent.KEYCODE_DPAD_LEFT -> -1
-                                else -> return@setOnKeyListener false
-                            }
-                            val increment = seekIncrementForHold(event.repeatCount)
-                            val target = (player.currentPosition + direction * increment)
-                                .coerceIn(0, player.duration.coerceAtLeast(0))
-                            player.seekTo(target)
-                            true
-                        }
-                    }
-                    setControllerVisibilityListener(
-                        PlayerView.ControllerVisibilityListener { visibility ->
-                            controllerVisible = visibility == View.VISIBLE
-                        },
                     )
                 }
             },
@@ -418,18 +428,18 @@ private fun PlayerSession(
         if (isBuffering) {
             AppLoadingIndicator(modifier = Modifier.align(Alignment.Center))
         }
-        if (controllerVisible) {
+        if (controlsVisible) {
             Text(
                 text = detail.title,
-                color = Color.White,
+                color = AppWhite,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(24.dp)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .background(AppScrim.copy(alpha = 0.6f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
-        if (connectionState != ConnectionState.CONNECTED && controllerVisible) {
+        if (connectionState != ConnectionState.CONNECTED && controlsVisible) {
             Text(
                 text = when (connectionState) {
                     ConnectionState.CONNECTING -> "Sync: connecting…"
@@ -437,29 +447,60 @@ private fun PlayerSession(
                     ConnectionState.ROOM_FULL -> "Sync: room full"
                     else -> "Sync: off"
                 },
-                color = Color.White,
+                color = AppWhite,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(24.dp)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .background(AppScrim.copy(alpha = 0.6f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
         if (phase == PlaybackPhase.WAITING_FOR_PEERS && waitingOn.isNotEmpty()) {
             Text(
                 text = "Waiting for the room to catch up…",
-                color = Color.White,
+                color = AppWhite,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(24.dp)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .background(AppScrim.copy(alpha = 0.6f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
-        ChatOverlay(
-            messages = sync.chatMessages,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
-        )
+        if (showChatOverlay) {
+            ChatOverlay(
+                messages = sync.chatMessages,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+            )
+        }
+        if (controlsVisible) {
+            PlayerControlsBar(
+                isPlaying = isPlaying,
+                subtitlesAvailable = subtitleOptions.isNotEmpty(),
+                playPauseFocusRequester = playPauseFocusRequester,
+                onPlayPause = ::togglePlayPause,
+                onRewind = { seekBy(-SKIP_INCREMENT_MS) },
+                onForward = { seekBy(SKIP_INCREMENT_MS) },
+                onOpenSubtitles = {
+                    controlsVisible = false
+                    subtitleMenuOpen = true
+                },
+                onOpenBitrate = {
+                    controlsVisible = false
+                    bitrateMenuOpen = true
+                },
+                onSeekBar = { seekBar = it },
+                onSeekKey = { keyCode, repeatCount ->
+                    val direction = when (keyCode) {
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> 1
+                        KeyEvent.KEYCODE_DPAD_LEFT -> -1
+                        else -> return@PlayerControlsBar false
+                    }
+                    seekBy(direction * seekIncrementForHold(repeatCount))
+                    true
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
         if (subtitleMenuOpen) {
             SubtitleMenu(
                 options = subtitleOptions,
@@ -467,10 +508,129 @@ private fun PlayerSession(
                 onSelect = { option ->
                     subtitleMenuOpen = false
                     onSelectSubtitle(option)
+                    screenFocusRequester.requestFocus()
                 },
-                onDismiss = { subtitleMenuOpen = false },
+                onDismiss = {
+                    subtitleMenuOpen = false
+                    screenFocusRequester.requestFocus()
+                },
                 modifier = Modifier.align(Alignment.CenterEnd).padding(24.dp),
             )
+        }
+        if (bitrateMenuOpen) {
+            BitrateMenu(
+                selectedKbps = maxVideoBitrateKbps,
+                onSelect = { kbps ->
+                    bitrateMenuOpen = false
+                    onSelectBitrate(kbps)
+                    screenFocusRequester.requestFocus()
+                },
+                onDismiss = {
+                    bitrateMenuOpen = false
+                    screenFocusRequester.requestFocus()
+                },
+                modifier = Modifier.align(Alignment.CenterEnd).padding(24.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerControlsBar(
+    isPlaying: Boolean,
+    subtitlesAvailable: Boolean,
+    playPauseFocusRequester: FocusRequester,
+    onPlayPause: () -> Unit,
+    onRewind: () -> Unit,
+    onForward: () -> Unit,
+    onOpenSubtitles: () -> Unit,
+    onOpenBitrate: () -> Unit,
+    onSeekBar: (DefaultTimeBar) -> Unit,
+    onSeekKey: (keyCode: Int, repeatCount: Int) -> Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(AppScrim.copy(alpha = 0.6f))
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxWidth(),
+            factory = { ctx ->
+                DefaultTimeBar(ctx).apply {
+                    // DefaultTimeBar has no gradient-stroke concept like the
+                    // Compose two-tone borders elsewhere, so the two-tone
+                    // treatment here is the played fill in the deeper
+                    // NeonPurple with the scrubber (the focal, "active"
+                    // point) in the lighter NeonPurpleGlow — same pairing,
+                    // closest equivalent this component supports.
+                    setPlayedColor(NeonPurple.toArgb())
+                    setScrubberColor(NeonPurpleGlow.toArgb())
+                    setOnKeyListener { _, keyCode, event ->
+                        if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                        onSeekKey(keyCode, event.repeatCount)
+                    }
+                    onSeekBar(this)
+                }
+            },
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onRewind,
+                colors = whiteIconButtonColors(),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
+            ) {
+                Icon(Icons.Default.Replay10, contentDescription = "Rewind 10 seconds", tint = AppWhite)
+            }
+            IconButton(
+                onClick = onPlayPause,
+                colors = whiteIconButtonColors(),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
+                modifier = Modifier.focusRequester(playPauseFocusRequester),
+            ) {
+                Icon(
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = AppWhite,
+                )
+            }
+            IconButton(
+                onClick = onForward,
+                colors = whiteIconButtonColors(),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
+            ) {
+                Icon(Icons.Default.Forward10, contentDescription = "Forward 10 seconds", tint = AppWhite)
+            }
+            IconButton(
+                onClick = onOpenSubtitles,
+                enabled = subtitlesAvailable,
+                colors = whiteIconButtonColors(),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
+            ) {
+                Icon(
+                    Icons.Default.ClosedCaption,
+                    contentDescription = "Subtitles",
+                    tint = AppWhite.copy(alpha = if (subtitlesAvailable) 1f else 0.5f),
+                )
+            }
+            IconButton(
+                onClick = onOpenBitrate,
+                colors = whiteIconButtonColors(),
+                border = neonPurpleButtonBorder(),
+                glow = neonPurpleButtonGlow(),
+            ) {
+                Icon(Icons.Default.HighQuality, contentDescription = "Quality", tint = AppWhite)
+            }
         }
     }
 }
@@ -495,11 +655,11 @@ private fun SubtitleMenu(
         modifier = modifier
             .width(360.dp)
             .heightIn(max = 480.dp)
-            .background(Color.Black.copy(alpha = 0.85f))
+            .background(AppScrim.copy(alpha = 0.85f))
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(text = "Subtitles", color = Color.White, style = MaterialTheme.typography.titleMedium)
+        Text(text = "Subtitles", color = AppWhite, style = MaterialTheme.typography.titleMedium)
         // Plain Column had no height cap, so a title with many language
         // tracks just grew past the screen edge — D-pad Down still moved
         // focus onto those off-screen rows, but with nothing to auto-scroll
@@ -523,6 +683,52 @@ private fun SubtitleMenu(
                         },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BitrateMenu(
+    selectedKbps: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BackHandler(onBack = onDismiss)
+
+    val presets = AppSettings.BITRATE_PRESETS
+    val focusRequesters = remember { presets.map { FocusRequester() } }
+    LaunchedEffect(Unit) {
+        val selectedIndex = presets.indexOfFirst { it.kbps == selectedKbps }.coerceAtLeast(0)
+        runCatching { focusRequesters.getOrNull(selectedIndex)?.requestFocus() }
+    }
+
+    // Fixed, short preset list — unlike SubtitleMenu's language tracks, this
+    // never grows past screen height, so a plain Column (no LazyColumn/height
+    // cap) is enough. Wider than SubtitleMenu since the friendly quality
+    // labels ("20 Mbps (High quality)") run longer than a language name.
+    Column(
+        modifier = modifier
+            .width(420.dp)
+            .background(AppScrim.copy(alpha = 0.85f))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(text = "Quality", color = AppWhite, style = MaterialTheme.typography.titleMedium)
+        presets.forEachIndexed { index, preset ->
+            val selected = preset.kbps == selectedKbps
+            ListItem(
+                selected = selected,
+                onClick = { onSelect(preset.kbps) },
+                headlineContent = { Text(preset.label) },
+                leadingContent = { RadioButton(selected = selected, onClick = null) },
+                modifier = Modifier
+                    .focusRequester(focusRequesters[index])
+                    .focusProperties {
+                        up = if (index > 0) focusRequesters[index - 1] else FocusRequester.Default
+                        down = if (index < focusRequesters.lastIndex) focusRequesters[index + 1] else FocusRequester.Default
+                    },
+            )
         }
     }
 }

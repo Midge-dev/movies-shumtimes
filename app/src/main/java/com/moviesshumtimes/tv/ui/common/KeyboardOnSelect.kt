@@ -12,7 +12,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -22,6 +21,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import com.moviesshumtimes.tv.ui.theme.AppDimBorder
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
@@ -70,7 +70,7 @@ fun ClickToTypeTextField(
                     if (isFocused) {
                         Brush.linearGradient(listOf(NeonPurpleGlow, NeonPurple))
                     } else {
-                        Brush.linearGradient(listOf(Color.DarkGray, Color.DarkGray))
+                        Brush.linearGradient(listOf(AppDimBorder, AppDimBorder))
                     },
                 ),
             )

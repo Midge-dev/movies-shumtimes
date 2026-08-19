@@ -3,7 +3,6 @@ package com.moviesshumtimes.tv.ui.theme
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -15,6 +14,7 @@ import androidx.tv.material3.CardBorder
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.CardGlow
 import androidx.tv.material3.Glow
+import androidx.tv.material3.IconButtonDefaults
 
 private val NeonPurpleButtonShape = RoundedCornerShape(50)
 private val NeonPurpleCardShape = RoundedCornerShape(8.dp)
@@ -26,7 +26,7 @@ private val NeonPurpleCardShape = RoundedCornerShape(8.dp)
 @Composable
 fun neonPurpleButtonBorder(): ButtonBorder = ButtonDefaults.border(
     focusedBorder = Border(
-        border = BorderStroke(2.dp, Brush.radialGradient(listOf(NeonPurpleGlow, NeonPurple))),
+        border = BorderStroke(2.dp, NeonPurpleGradient),
         shape = NeonPurpleButtonShape,
     ),
 )
@@ -47,19 +47,36 @@ fun neonPurpleButtonGlow(): ButtonGlow = ButtonDefaults.glow(
 // NeonPurple, the outlined one leaves container/border alone entirely.
 @Composable
 fun whiteButtonColors(): ButtonColors = ButtonDefaults.colors(
-    contentColor = Color.White,
-    focusedContentColor = Color.White,
-    pressedContentColor = Color.White,
-    disabledContentColor = Color.White.copy(alpha = 0.5f),
+    contentColor = AppWhite,
+    focusedContentColor = AppWhite,
+    pressedContentColor = AppWhite,
+    disabledContentColor = AppWhite.copy(alpha = 0.5f),
     focusedContainerColor = NeonPurple,
 )
 
 @Composable
 fun whiteOutlinedButtonColors(): ButtonColors = ButtonDefaults.colors(
-    contentColor = Color.White,
-    focusedContentColor = Color.White,
-    pressedContentColor = Color.White,
-    disabledContentColor = Color.White.copy(alpha = 0.5f),
+    contentColor = AppWhite,
+    focusedContentColor = AppWhite,
+    pressedContentColor = AppWhite,
+    disabledContentColor = AppWhite.copy(alpha = 0.5f),
+)
+
+// Same rationale, for IconButton (player transport controls): tv-material3's
+// default IconButton colors fill focused state with onSurface (near-white),
+// which reads as a plain white disc with no relation to the app's NeonPurple
+// focus language used everywhere else (buttons, cards). Transparent at rest
+// keeps icons floating over the video with no visible container until focused.
+@Composable
+fun whiteIconButtonColors(): ButtonColors = IconButtonDefaults.colors(
+    containerColor = Color.Transparent,
+    contentColor = AppWhite,
+    focusedContainerColor = NeonPurple,
+    focusedContentColor = AppWhite,
+    pressedContainerColor = NeonPurple,
+    pressedContentColor = AppWhite,
+    disabledContainerColor = Color.Transparent,
+    disabledContentColor = AppWhite.copy(alpha = 0.5f),
 )
 
 // Same two-tone treatment as the buttons above, for Card — movie/season/
@@ -68,7 +85,7 @@ fun whiteOutlinedButtonColors(): ButtonColors = ButtonDefaults.colors(
 @Composable
 fun neonPurpleCardBorder(): CardBorder = CardDefaults.border(
     focusedBorder = Border(
-        border = BorderStroke(2.dp, Brush.radialGradient(listOf(NeonPurpleGlow, NeonPurple))),
+        border = BorderStroke(2.dp, NeonPurpleGradient),
         shape = NeonPurpleCardShape,
     ),
 )

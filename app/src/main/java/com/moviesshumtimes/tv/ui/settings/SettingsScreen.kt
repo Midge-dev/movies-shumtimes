@@ -27,7 +27,6 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -53,14 +52,13 @@ import com.moviesshumtimes.tv.data.settings.SettingsStore
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
 import com.moviesshumtimes.tv.ui.theme.whiteOutlinedButtonColors
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-
-private val BITRATE_PRESETS_KBPS = listOf(2000, 4000, 8000, 20000)
 
 @Composable
 fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () -> Unit, onSaved: () -> Unit) {
@@ -117,6 +115,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
     val cancelPairingFocus = remember { FocusRequester() }
     val bitrateRowFocus = remember { FocusRequester() }
     val forceBurnFocus = remember { FocusRequester() }
+    val showChatFocus = remember { FocusRequester() }
     val saveFocus = remember { FocusRequester() }
     val scrollState = rememberScrollState()
 
@@ -238,7 +237,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                             content = pairingUrl!!,
                             modifier = Modifier
                                 .size(160.dp)
-                                .background(Color.White)
+                                .background(AppWhite)
                                 .padding(12.dp),
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -271,10 +270,10 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     // FilterChip's own selected-state checkmark replaces the
                     // old "[bracket]" text hack.
-                    BITRATE_PRESETS_KBPS.forEachIndexed { index, preset ->
+                    AppSettings.BITRATE_PRESETS.forEachIndexed { index, preset ->
                         FilterChip(
-                            selected = settings.maxVideoBitrateKbps == preset,
-                            onClick = { settings = settings.copy(maxVideoBitrateKbps = preset) },
+                            selected = settings.maxVideoBitrateKbps == preset.kbps,
+                            onClick = { settings = settings.copy(maxVideoBitrateKbps = preset.kbps) },
                             modifier = Modifier
                                 .let { if (index == 0) it.focusRequester(bitrateRowFocus) else it }
                                 .focusProperties {
@@ -282,7 +281,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                                     down = forceBurnFocus
                                 },
                         ) {
-                            Text("${preset / 1000} Mbps")
+                            Text(preset.label)
                         }
                     }
                 }
@@ -297,6 +296,20 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                         .focusRequester(forceBurnFocus)
                         .focusProperties {
                             up = bitrateRowFocus
+                            down = showChatFocus
+                        },
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Show watch-together chat messages on screen during playback")
+                Switch(
+                    checked = settings.showChatOverlay,
+                    onCheckedChange = { settings = settings.copy(showChatOverlay = it) },
+                    modifier = Modifier
+                        .focusRequester(showChatFocus)
+                        .focusProperties {
+                            up = forceBurnFocus
                             down = saveFocus
                         },
                 )
@@ -314,7 +327,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
                 glow = neonPurpleButtonGlow(),
                 modifier = Modifier
                     .focusRequester(saveFocus)
-                    .focusProperties { up = forceBurnFocus },
+                    .focusProperties { up = showChatFocus },
             ) {
                 Text("Save")
             }

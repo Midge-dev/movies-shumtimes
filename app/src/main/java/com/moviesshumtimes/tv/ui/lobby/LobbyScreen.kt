@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -48,6 +47,8 @@ import com.moviesshumtimes.tv.sync.RelayEvent
 import com.moviesshumtimes.tv.sync.toChatMessage
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.theme.AppScrim
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
@@ -129,17 +130,17 @@ fun LobbyScreen(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.78f)))
+        Box(modifier = Modifier.fillMaxSize().background(AppScrim.copy(alpha = 0.78f)))
 
         Column(
             modifier = Modifier.fillMaxSize().padding(48.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(detail.title, style = MaterialTheme.typography.displaySmall, color = Color.White)
+            Text(detail.title, style = MaterialTheme.typography.displaySmall, color = AppWhite)
             Text(
                 "Waiting to watch together",
-                color = Color.White,
+                color = AppWhite,
                 modifier = Modifier.padding(top = 8.dp, bottom = 48.dp),
             )
 
@@ -215,7 +216,7 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
     LaunchedEffect(Unit) { closeFocusRequester.requestFocus() }
 
     Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)),
+        modifier = Modifier.fillMaxSize().background(AppScrim.copy(alpha = 0.85f)),
         contentAlignment = Alignment.Center,
     ) {
         Surface(
@@ -228,12 +229,12 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
                 .padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Join the chat", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+            Text("Join the chat", style = MaterialTheme.typography.headlineSmall, color = AppWhite)
 
             if (chatUrl == null) {
                 Text(
                     "Chat needs a wss:// or ws:// relay URL — check Settings.",
-                    color = Color.White,
+                    color = AppWhite,
                     modifier = Modifier.padding(top = 20.dp),
                 )
             } else {
@@ -242,11 +243,11 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
                     modifier = Modifier
                         .padding(top = 20.dp)
                         .size(220.dp)
-                        .background(Color.White)
+                        .background(AppWhite)
                         .padding(12.dp),
                 )
-                Text("Scan with your phone, or visit:", color = Color.White, modifier = Modifier.padding(top = 20.dp))
-                Text(chatUrl, color = Color.White, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
+                Text("Scan with your phone, or visit:", color = AppWhite, modifier = Modifier.padding(top = 20.dp))
+                Text(chatUrl, color = AppWhite, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
             }
 
             // Secondary/dismiss action — OutlinedButton reads as lower
@@ -293,7 +294,7 @@ private fun LobbyPersonCard(username: String, avatarUrl: String?, present: Boole
             modifier = Modifier
                 .size(96.dp)
                 .clip(CircleShape)
-                .background(if (present) NeonPurple.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.1f)),
+                .background(if (present) NeonPurple.copy(alpha = 0.35f) else AppWhite.copy(alpha = 0.1f)),
             contentAlignment = Alignment.Center,
         ) {
             if (avatarUrl != null) {
@@ -304,9 +305,9 @@ private fun LobbyPersonCard(username: String, avatarUrl: String?, present: Boole
                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                 )
             } else {
-                Text(username.take(1).uppercase(), style = MaterialTheme.typography.headlineMedium, color = Color.White)
+                Text(username.take(1).uppercase(), style = MaterialTheme.typography.headlineMedium, color = AppWhite)
             }
         }
-        Text(username, color = Color.White, modifier = Modifier.padding(top = 12.dp))
+        Text(username, color = AppWhite, modifier = Modifier.padding(top = 12.dp))
     }
 }

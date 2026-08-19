@@ -25,6 +25,8 @@ import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.ui.theme.AppScrim
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
@@ -58,15 +60,15 @@ fun MovieDetailScreen(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
+                .background(Brush.verticalGradient(listOf(Color.Transparent, AppScrim)))
                 .padding(48.dp),
         ) {
-            Text(text = movie.title, style = MaterialTheme.typography.displaySmall, color = Color.White)
+            Text(text = movie.title, style = MaterialTheme.typography.displaySmall, color = AppWhite)
             movie.year?.let { year ->
-                Text(text = year.toString(), color = Color.White, modifier = Modifier.padding(top = 8.dp))
+                Text(text = year.toString(), color = AppWhite, modifier = Modifier.padding(top = 8.dp))
             }
             movie.summary?.let { summary ->
-                Text(text = summary, color = Color.White, modifier = Modifier.padding(top = 16.dp))
+                Text(text = summary, color = AppWhite, modifier = Modifier.padding(top = 16.dp))
             }
             Button(
                 onClick = onPlay,

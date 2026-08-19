@@ -26,6 +26,7 @@ import androidx.tv.material3.NavigationDrawerScope
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.ui.theme.AppSurface
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
 private const val SECTION_TYPE_SHOW = "show"
@@ -131,23 +132,23 @@ private fun NavigationDrawerScope.SidebarItem(
         selected = selected,
         onClick = onClick,
         leadingContent = {
-            Icon(imageVector = icon, contentDescription = if (hasFocus) null else label, tint = Color.White)
+            Icon(imageVector = icon, contentDescription = if (hasFocus) null else label, tint = AppWhite)
         },
         colors = NavigationDrawerItemDefaults.colors(
-            contentColor = Color.White,
-            inactiveContentColor = Color.White,
+            contentColor = AppWhite,
+            inactiveContentColor = AppWhite,
             focusedContainerColor = NeonPurple,
-            focusedContentColor = Color.White,
+            focusedContentColor = AppWhite,
             pressedContainerColor = NeonPurple,
-            pressedContentColor = Color.White,
+            pressedContentColor = AppWhite,
             selectedContainerColor = NeonPurple.copy(alpha = 0.35f),
-            selectedContentColor = Color.White,
+            selectedContentColor = AppWhite,
             focusedSelectedContainerColor = NeonPurple,
-            focusedSelectedContentColor = Color.White,
+            focusedSelectedContentColor = AppWhite,
             pressedSelectedContainerColor = NeonPurple,
-            pressedSelectedContentColor = Color.White,
+            pressedSelectedContentColor = AppWhite,
         ),
     ) {
-        Text(label, color = Color.White)
+        Text(label, color = AppWhite)
     }
 }

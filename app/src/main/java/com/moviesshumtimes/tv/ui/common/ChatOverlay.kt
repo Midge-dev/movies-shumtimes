@@ -16,11 +16,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.sync.ChatMessage
+import com.moviesshumtimes.tv.ui.theme.AppScrim
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
 
@@ -60,12 +61,12 @@ private fun ChatBubble(message: ChatMessage, onExpired: () -> Unit) {
     AnimatedVisibility(visible = shown, enter = fadeIn(), exit = fadeOut()) {
         Text(
             text = "${message.username}: ${message.text}",
-            color = Color.White,
+            color = AppWhite,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .widthIn(max = 420.dp)
-                .background(Color.Black.copy(alpha = 0.6f))
+                .background(AppScrim.copy(alpha = 0.6f))
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         )
     }

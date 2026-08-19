@@ -32,7 +32,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +48,7 @@ import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
@@ -109,7 +109,7 @@ fun LibraryScreen(
                     singleLine = true,
                     decorationBox = { inner ->
                         if (query.isEmpty()) {
-                            Text("Search ${selectedSection.title}…", color = Color.White)
+                            Text("Search ${selectedSection.title}…", color = AppWhite)
                         }
                         inner()
                     },

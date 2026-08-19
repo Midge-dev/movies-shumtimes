@@ -16,7 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
@@ -25,6 +24,7 @@ import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.plex.PlexIdentity
 import com.moviesshumtimes.tv.data.plex.TokenStore
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import kotlinx.coroutines.delay
 
 private sealed interface AuthState {
@@ -86,7 +86,7 @@ fun AuthScreen(onLoggedIn: (token: String) -> Unit) {
                             content = "https://www.plex.tv/link/",
                             modifier = Modifier
                                 .size(220.dp)
-                                .background(Color.White)
+                                .background(AppWhite)
                                 .padding(16.dp),
                         )
                         Column(

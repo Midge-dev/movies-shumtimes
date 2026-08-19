@@ -73,6 +73,17 @@ running setup details, decisions, and gotchas as we build.
   `VectorDrawable`s work fine as placeholders (`app/src/main/res/drawable/tv_banner.xml`,
   `ic_launcher_background.xml` / `ic_launcher_foreground.xml`). Swap for real
   artwork later.
+- (Fixed 2026-08-17) Every reinstall used to force a fresh Plex login + relay
+  re-pair. Cause: no shared debug keystore, so AGP fell back to each
+  environment's own implicit `~/.android/debug.keystore` — stable on one
+  machine, but the GitHub Actions runner has none persisted, so CI minted a
+  new random one on every run. Installing a differently-signed APK over an
+  existing one forces `adb` to uninstall (wiping app data) before it'll
+  reinstall. Fixed by checking `app/debug.keystore` into the repo and
+  pointing `signingConfigs.debug` at it explicitly (see `app/build.gradle.kts`)
+  — every build, local or CI, now signs identically, so `adb install -r`
+  just updates in place. This keystore must stay in the repo and never get
+  regenerated, or the whole class of problem comes back.
 
 ## Material 3 component audit (2026-08-17)
 

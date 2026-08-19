@@ -38,7 +38,6 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -61,6 +60,7 @@ import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
+import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
 import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
 import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
@@ -396,7 +396,7 @@ private fun ContinueWatchingPoster(
                             .align(Alignment.BottomStart)
                             .fillMaxWidth()
                             .height(4.dp)
-                            .background(Color.Black.copy(alpha = 0.4f)),
+                            .background(AppScrim.copy(alpha = 0.4f)),
                     ) {
                         Box(
                             modifier = Modifier
@@ -453,7 +453,7 @@ private fun RemoveConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f))
+            .background(AppScrim.copy(alpha = 0.85f))
             .focusGroup()
             .focusProperties { onExit = { cancelFocusChange() } },
         contentAlignment = Alignment.Center,
