@@ -63,7 +63,7 @@ import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.settings.AppSettings
-import com.moviesshumtimes.tv.data.settings.SettingsStore
+import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.playback.PlaybackDecision
 import com.moviesshumtimes.tv.playback.PlexPlayerFactory
 import com.moviesshumtimes.tv.playback.SubtitleOption
@@ -117,7 +117,7 @@ fun PlayerScreen(
     var settings by remember { mutableStateOf<AppSettings?>(null) }
 
     LaunchedEffect(Unit) {
-        settings = SettingsStore.observe(context).first()
+        settings = context.appSettingsStore.observe().first()
     }
 
     val currentSettings = settings ?: run {
@@ -179,7 +179,7 @@ fun PlayerScreen(
                 activePlayer?.let { restartPositionMs = it.currentPosition }
                 val updated = currentSettings.copy(maxVideoBitrateKbps = kbps)
                 settings = updated
-                scope.launch { SettingsStore.save(context, updated) }
+                scope.launch { context.appSettingsStore.save(updated) }
             },
             onExit = onExit,
         )

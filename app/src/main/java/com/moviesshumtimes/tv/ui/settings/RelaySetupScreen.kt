@@ -34,7 +34,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.pairing.PairingServer
-import com.moviesshumtimes.tv.data.settings.SettingsStore
+import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
@@ -65,8 +65,9 @@ fun RelaySetupScreen(onDone: () -> Unit) {
     DisposableEffect(Unit) { onDispose { pairingServer?.stop() } }
 
     suspend fun saveAndContinue() {
-        val current = SettingsStore.observe(context).first()
-        SettingsStore.save(context, current.copy(relayUrl = relayUrl.trim().ifBlank { null }))
+        val store = context.appSettingsStore
+        val current = store.observe().first()
+        store.save(current.copy(relayUrl = relayUrl.trim().ifBlank { null }))
         onDone()
     }
 

@@ -21,8 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
-import com.moviesshumtimes.tv.data.plex.PlexIdentity
 import com.moviesshumtimes.tv.data.plex.TokenStore
+import com.moviesshumtimes.tv.data.settings.plexIdentityStore
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import kotlinx.coroutines.delay
@@ -42,7 +42,7 @@ fun AuthScreen(onLoggedIn: (token: String) -> Unit) {
 
     LaunchedEffect(Unit) {
         try {
-            val clientIdentifier = PlexIdentity.getOrCreateClientIdentifier(context)
+            val clientIdentifier = context.plexIdentityStore.getOrCreateClientIdentifier()
             val api = PlexAuthApi(clientIdentifier)
 
             val pin = api.createPin()

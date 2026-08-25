@@ -35,7 +35,6 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.data.plex.PlexAccount
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.plex.PlexEpisode
-import com.moviesshumtimes.tv.data.plex.PlexIdentity
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
@@ -47,8 +46,9 @@ import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.plex.PlexServerApi
 import com.moviesshumtimes.tv.data.plex.TokenStore
 import com.moviesshumtimes.tv.data.settings.RelayIdentity
-import com.moviesshumtimes.tv.data.settings.RelayIdentityStore
-import com.moviesshumtimes.tv.data.settings.SettingsStore
+import com.moviesshumtimes.tv.data.settings.appSettingsStore
+import com.moviesshumtimes.tv.data.settings.plexIdentityStore
+import com.moviesshumtimes.tv.data.settings.relayIdentityStore
 import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
@@ -230,15 +230,15 @@ private fun AppRoot() {
     // hold the socket open for the whole browsing session too.
     suspend fun ensureRelayClient(): RelayClient? {
         relayClient?.let { return it }
-        val relayUrl = SettingsStore.observe(context).first().relayUrl?.takeIf { it.isNotBlank() } ?: return null
-        val identity = relayIdentity ?: RelayIdentityStore.load(context).also { relayIdentity = it }
+        val relayUrl = context.appSettingsStore.observe().first().relayUrl?.takeIf { it.isNotBlank() } ?: return null
+        val identity = relayIdentity ?: context.relayIdentityStore.load().also { relayIdentity = it }
         val newClient = RelayClient(
             relayUrl = relayUrl,
             identity = identity,
             scope = scope,
             onIdentityUpdated = { updated ->
                 relayIdentity = updated
-                scope.launch { updated.reconnectToken?.let { RelayIdentityStore.saveReconnectToken(context, it) } }
+                updated.reconnectToken?.let { context.relayIdentityStore.saveReconnectToken(it) }
             },
         )
         newClient.connect()
@@ -360,14 +360,14 @@ private fun AppRoot() {
 
     suspend fun connect(token: String) {
         accountToken = token
-        clientIdentifier = PlexIdentity.getOrCreateClientIdentifier(context)
+        clientIdentifier = context.plexIdentityStore.getOrCreateClientIdentifier()
         val authApi = PlexAuthApi(clientIdentifier)
         val account = runCatching { authApi.fetchAccount(token) }.getOrNull()
         localAccount = account
         state = AppState.ConnectingToServer(account?.username)
 
         state = runCatching {
-            val selectedServerId = SettingsStore.observe(context).first().selectedServerId
+            val selectedServerId = context.appSettingsStore.observe().first().selectedServerId
             val server = PlexResourcesApi(clientIdentifier).findReachableServer(token, selectedServerId)
                 ?: error("No reachable Plex server found — make sure it's online and reachable on this network.")
             val serverApi = PlexServerApi(server, clientIdentifier)
@@ -376,7 +376,7 @@ private fun AppRoot() {
                 ?: error("No movie or show library found on ${server.name}")
             val items = serverApi.fetchLibraryItems(firstSection.key)
             val ctx = LibraryContext(server, sections, firstSection, items)
-            val relayConfigured = !SettingsStore.observe(context).first().relayUrl.isNullOrBlank()
+            val relayConfigured = !context.appSettingsStore.observe().first().relayUrl.isNullOrBlank()
             if (relayConfigured) loadHome(server, sections) else AppState.RelaySetup(ctx)
         }.getOrElse { AppState.Error(it.message ?: "Something went wrong connecting to Plex") }
     }
