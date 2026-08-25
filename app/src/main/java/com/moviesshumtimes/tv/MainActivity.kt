@@ -444,9 +444,10 @@ private fun AppRoot() {
                     // detail screen in this app, so route to the show
                     // itself instead, using the parent fields Plex attaches
                     // to season items (confirmed against a real server).
-                    val target = if (item.type == "season" && item.parentRatingKey != null) {
+                    val parentRatingKey = item.parentRatingKey
+                    val target = if (item.type == "season" && parentRatingKey != null) {
                         PlexLibraryItem(
-                            ratingKey = item.parentRatingKey,
+                            ratingKey = parentRatingKey,
                             type = SECTION_TYPE_SHOW,
                             title = item.parentTitle ?: item.title,
                             thumb = item.thumb,

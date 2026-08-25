@@ -1,5 +1,7 @@
 package com.moviesshumtimes.tv.sync
 
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 import kotlinx.serialization.Serializable
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING, ROOM_FULL }
@@ -50,8 +52,9 @@ data class RelayEvent(
 
 data class ChatMessage(val username: String, val text: String, val receivedAtMs: Long)
 
+@OptIn(ExperimentalTime::class)
 fun RelayEvent.toChatMessage() = ChatMessage(
     username = username ?: "them",
     text = text ?: "",
-    receivedAtMs = System.currentTimeMillis(),
+    receivedAtMs = Clock.System.now().toEpochMilliseconds(),
 )

@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "movies-shumtimes"
 include(":app")
+include(":shared")

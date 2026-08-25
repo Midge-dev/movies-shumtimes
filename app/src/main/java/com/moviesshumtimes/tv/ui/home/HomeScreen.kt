@@ -204,8 +204,10 @@ private fun <T> HomeRow(
 // recentlyAdded surfaces TV content at season granularity ("Season 14",
 // confirmed against a real server) — parentTitle is the actual show name
 // Plex attaches to season items, which reads much better in a poster row.
-private fun recentlyAddedLabel(item: PlexLibraryItem): String =
-    if (item.type == "season" && item.parentTitle != null) item.parentTitle else item.title
+private fun recentlyAddedLabel(item: PlexLibraryItem): String {
+    val parentTitle = item.parentTitle
+    return if (item.type == "season" && parentTitle != null) parentTitle else item.title
+}
 
 private fun continueWatchingLabel(item: PlexOnDeckItem): String =
     if (item.type == TYPE_EPISODE && item.grandparentTitle != null && item.parentIndex != null && item.index != null) {

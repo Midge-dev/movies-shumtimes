@@ -6,35 +6,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-@Serializable
-data class PlexConnection(
-    val uri: String,
-    val local: Boolean = false,
-    val relay: Boolean = false,
-)
-
-@Serializable
-data class PlexResource(
-    val name: String,
-    val provides: String = "",
-    val owned: Boolean = false,
-    // Plex's stable per-server machine ID — distinct from the app's own
-    // client identifier passed into PlexResourcesApi's constructor. Used to
-    // remember a user's explicit server choice across resource re-fetches,
-    // since connection URIs/tokens can change but this doesn't.
-    @SerialName("clientIdentifier") val machineIdentifier: String = "",
-    val accessToken: String? = null,
-    val connections: List<PlexConnection> = emptyList(),
-)
-
-data class PlexServer(val name: String, val baseUrl: String, val accessToken: String)
+// PlexConnection/PlexResource/PlexServer live in the shared module now
+// (data/plex/PlexModels.kt) — pure data, no OkHttp.
 
 // Discovers Plex servers reachable from this account (including servers
 // shared by other accounts, like the cousin's) and figures out which of
