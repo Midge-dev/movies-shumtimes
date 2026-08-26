@@ -1,12 +1,10 @@
 package com.moviesshumtimes.tv.sync
 
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 // Host-side policy engine: owns the authoritative PlaybackState for however
 // many guests have joined (N-capable — the relay's seat model supports up
@@ -22,7 +20,7 @@ import kotlin.math.abs
 // partly because this app has no variable-speed feature to protect either).
 class HostPlaybackCoordinator(
     private val myPeerId: String,
-    private val player: ExoPlayer,
+    private val player: SyncedPlayer,
     private val scope: CoroutineScope,
     private val sendState: (PlaybackState) -> Unit,
     private val onWaitingOnChanged: (List<String>) -> Unit = {},
@@ -86,44 +84,40 @@ class HostPlaybackCoordinator(
     private var lastBroadcast: PlaybackState? = null
     private var pendingActor: String? = null
 
-    private fun isSuppressed() = System.currentTimeMillis() < suppressUntilMs
+    private fun isSuppressed() = nowMs() < suppressUntilMs
     private inline fun suppressed(block: () -> Unit) {
-        suppressUntilMs = System.currentTimeMillis() + SUPPRESSION_WINDOW_MS
+        suppressUntilMs = nowMs() + SUPPRESSION_WINDOW_MS
         block()
     }
 
-    private val listener = object : Player.Listener {
-        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (reason != Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST || isSuppressed()) return
+    private val listener = object : SyncedPlayerListener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, isUserRequest: Boolean) {
+            if (!isUserRequest || isSuppressed()) return
             if (playWhenReady) requestPlay(myPeerId) else requestPause(myPeerId)
         }
 
-        override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_READY && !localReady) {
+        override fun onPlaybackStateChanged(state: SyncPlaybackState) {
+            if (state == SyncPlaybackState.READY && !localReady) {
                 localReady = true
                 onLocalLoaded()
                 return
             }
             if (!localReady) return
-            val buffering = playbackState == Player.STATE_BUFFERING
+            val buffering = state == SyncPlaybackState.BUFFERING
             if (buffering == localBuffering) return
             localBuffering = buffering
             onSelfBuffering(buffering)
         }
 
-        override fun onPositionDiscontinuity(
-            oldPosition: Player.PositionInfo,
-            newPosition: Player.PositionInfo,
-            reason: Int,
-        ) {
-            if (isSuppressed() || reason != Player.DISCONTINUITY_REASON_SEEK) return
-            afterHostSeek(newPosition.positionMs, myPeerId)
+        override fun onSeek(positionMs: Long) {
+            if (isSuppressed()) return
+            afterHostSeek(positionMs, myPeerId)
         }
     }
 
     fun start() {
         player.addListener(listener)
-        localReady = player.playbackState == Player.STATE_READY
+        localReady = player.playbackState == SyncPlaybackState.READY
         if (localReady) onLocalLoaded() else setPhase(PlaybackPhase.LOADING)
         restartHeartbeat()
     }
@@ -328,7 +322,7 @@ class HostPlaybackCoordinator(
         cancelPendingStart()
         val otherPeers = knownPeers - excused
         val delayMs = if (otherPeers.isEmpty()) 0L else START_DELAY_MS
-        val startAt = System.currentTimeMillis() + delayMs
+        val startAt = nowMs() + delayMs
         val startPositionMs = player.currentPosition
         firstStartCompleted = true
         setPhase(PlaybackPhase.PLAYING)
@@ -395,7 +389,7 @@ class HostPlaybackCoordinator(
         val last = lastBroadcast
         var hint: PlaybackActionHint? = null
         if (last != null && pendingStartJob == null) {
-            val expected = last.targetPositionMs(System.currentTimeMillis())
+            val expected = last.targetPositionMs(nowMs())
             if (abs(player.currentPosition - expected) > IMPLICIT_JUMP_THRESHOLD_MS) hint = PlaybackActionHint.SEEK
         }
         broadcast(hint = hint, actor = if (hint != null) myPeerId else null)
@@ -421,7 +415,7 @@ class HostPlaybackCoordinator(
     ) {
         if (disposed) return
         val anchorPositionMs = anchorOverrideMs ?: player.currentPosition
-        val anchorHostTimeMs = anchorHostTimeOverrideMs ?: System.currentTimeMillis()
+        val anchorHostTimeMs = anchorHostTimeOverrideMs ?: nowMs()
         val waitingOn = if (phase == PlaybackPhase.WAITING_FOR_PEERS) gatingPeers().sorted() else emptyList()
 
         val state = PlaybackState(

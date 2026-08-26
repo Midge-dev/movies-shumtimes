@@ -21,8 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
-import com.moviesshumtimes.tv.data.plex.TokenStore
 import com.moviesshumtimes.tv.data.settings.plexIdentityStore
+import com.moviesshumtimes.tv.data.settings.tokenStore
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import kotlinx.coroutines.delay
@@ -60,7 +60,7 @@ fun AuthScreen(onLoggedIn: (token: String) -> Unit) {
                 return@LaunchedEffect
             }
 
-            TokenStore.saveToken(context, token)
+            context.tokenStore.saveToken(token)
             onLoggedIn(token)
         } catch (e: Exception) {
             state = AuthState.Error(e.message ?: "Something went wrong")

@@ -1,12 +1,10 @@
 package com.moviesshumtimes.tv.sync
 
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 // Guest-side reconciliation loop: converges the local player onto the
 // host's authoritative PlaybackState. Ported down from Plezy's
@@ -22,7 +20,7 @@ import kotlin.math.abs
 // the host doesn't undo them before its own reply lands.
 class GuestPlaybackReconciler(
     private val myPeerId: String,
-    private val player: ExoPlayer,
+    private val player: SyncedPlayer,
     private val scope: CoroutineScope,
     private val clock: ClockSync,
     private val sendControl: (ControlRequest) -> Unit,
@@ -63,22 +61,22 @@ class GuestPlaybackReconciler(
     private var lastSentStatus: PeerStatus? = null
     private var disposed = false
 
-    private fun isSuppressed() = System.currentTimeMillis() < suppressUntilMs
+    private fun isSuppressed() = nowMs() < suppressUntilMs
     private inline fun suppressed(block: () -> Unit) {
-        suppressUntilMs = System.currentTimeMillis() + SUPPRESSION_WINDOW_MS
+        suppressUntilMs = nowMs() + SUPPRESSION_WINDOW_MS
         block()
     }
 
-    private val listener = object : Player.Listener {
-        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (reason != Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST || isSuppressed()) return
+    private val listener = object : SyncedPlayerListener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, isUserRequest: Boolean) {
+            if (!isUserRequest || isSuppressed()) return
             if (latestState == null) return
             sendControl(ControlRequest(if (playWhenReady) ControlRequestKind.PLAY else ControlRequestKind.PAUSE))
             markOptimistic()
         }
 
-        override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_READY && !localReady) {
+        override fun onPlaybackStateChanged(state: SyncPlaybackState) {
+            if (state == SyncPlaybackState.READY && !localReady) {
                 localReady = true
                 sendStatusNow(force = true)
                 reconcile()
@@ -87,21 +85,17 @@ class GuestPlaybackReconciler(
             sendStatusNow()
         }
 
-        override fun onPositionDiscontinuity(
-            oldPosition: Player.PositionInfo,
-            newPosition: Player.PositionInfo,
-            reason: Int,
-        ) {
-            if (isSuppressed() || reason != Player.DISCONTINUITY_REASON_SEEK) return
+        override fun onSeek(positionMs: Long) {
+            if (isSuppressed()) return
             if (latestState == null) return
-            sendControl(ControlRequest(ControlRequestKind.SEEK, newPosition.positionMs))
+            sendControl(ControlRequest(ControlRequestKind.SEEK, positionMs))
             markOptimistic()
         }
     }
 
     fun start() {
         player.addListener(listener)
-        localReady = player.playbackState == Player.STATE_READY
+        localReady = player.playbackState == SyncPlaybackState.READY
         clock.start()
         tickJob = scope.launch {
             while (true) {
@@ -133,7 +127,7 @@ class GuestPlaybackReconciler(
             optimisticUntilSeq = null
         }
         // Self-heal: the host thinks it's waiting on us but we're healthy.
-        if (state.waitingOn.contains(myPeerId) && localReady && player.playbackState != Player.STATE_BUFFERING) {
+        if (state.waitingOn.contains(myPeerId) && localReady && player.playbackState != SyncPlaybackState.BUFFERING) {
             sendStatusNow(force = true)
         }
         reconcile()
@@ -141,10 +135,10 @@ class GuestPlaybackReconciler(
 
     private fun markOptimistic() {
         optimisticUntilSeq = lastSeq
-        optimisticDeadlineMs = System.currentTimeMillis() + OPTIMISTIC_WINDOW_MS
+        optimisticDeadlineMs = nowMs() + OPTIMISTIC_WINDOW_MS
     }
 
-    private fun optimisticWindowActive() = optimisticUntilSeq != null && System.currentTimeMillis() < optimisticDeadlineMs
+    private fun optimisticWindowActive() = optimisticUntilSeq != null && nowMs() < optimisticDeadlineMs
 
     private fun reconcile() {
         if (disposed || settling) return
@@ -196,10 +190,10 @@ class GuestPlaybackReconciler(
         if (cooldownElapsed()) hardSeek(targetMs)
     }
 
-    private fun cooldownElapsed() = System.currentTimeMillis() - lastHardSeekMs >= HARD_SEEK_COOLDOWN_MS
+    private fun cooldownElapsed() = nowMs() - lastHardSeekMs >= HARD_SEEK_COOLDOWN_MS
 
     private fun hardSeek(targetMs: Long) {
-        lastHardSeekMs = System.currentTimeMillis()
+        lastHardSeekMs = nowMs()
         settling = true
         settleJob?.cancel()
         settleJob = scope.launch {
@@ -221,7 +215,7 @@ class GuestPlaybackReconciler(
     private fun sendStatusNow(force: Boolean = false) {
         val status = PeerStatus(
             ready = localReady,
-            buffering = player.playbackState == Player.STATE_BUFFERING,
+            buffering = player.playbackState == SyncPlaybackState.BUFFERING,
             positionMs = player.currentPosition,
             rttMs = clock.minRttMs,
         )

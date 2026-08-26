@@ -1,15 +1,12 @@
 package com.moviesshumtimes.tv.data.plex
 
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.Dispatchers
+import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.get
+import io.ktor.client.request.header
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 // PlexConnection/PlexResource/PlexServer live in the shared module now
 // (data/plex/PlexModels.kt) — pure data, no OkHttp.
@@ -21,28 +18,21 @@ import okhttp3.Request
 // relay connection unless the owner has port-forwarding set up, so we can't
 // just take connections[0] — every candidate has to be tried for real.
 class PlexResourcesApi(private val clientIdentifier: String) {
-    private val client = OkHttpClient()
-    private val connectClient = client.newBuilder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .build()
-    private val json = Json { ignoreUnknownKeys = true }
-
-    suspend fun fetchResources(accountToken: String): List<PlexResource> = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1&includeIPv6=1")
-            .get()
-            .addHeader("Accept", "application/json")
-            .addHeader("X-Plex-Product", "Movies Shumtimes")
-            .addHeader("X-Plex-Client-Identifier", clientIdentifier)
-            .addHeader("X-Plex-Token", accountToken)
-            .build()
-        client.newCall(request).execute().use { response ->
-            val bodyString = response.body.string()
-            check(response.isSuccessful) { "Failed to fetch Plex resources: ${response.code} $bodyString" }
-            json.decodeFromString(ListSerializer(PlexResource.serializer()), bodyString)
+    private val client = plexHttpClient()
+    private val connectClient = plexHttpClient {
+        install(HttpTimeout) {
+            connectTimeoutMillis = 4_000
+            requestTimeoutMillis = 4_000
         }
     }
+
+    suspend fun fetchResources(accountToken: String): List<PlexResource> =
+        client.get("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1&includeIPv6=1") {
+            header("Accept", "application/json")
+            header("X-Plex-Product", "Movies Shumtimes")
+            header("X-Plex-Client-Identifier", clientIdentifier)
+            header("X-Plex-Token", accountToken)
+        }.body()
 
     suspend fun listServers(accountToken: String): List<PlexResource> =
         fetchResources(accountToken).filter { "server" in it.provides && it.accessToken != null }
@@ -79,19 +69,17 @@ class PlexResourcesApi(private val clientIdentifier: String) {
         coroutineScope {
             if (candidates.isEmpty()) return@coroutineScope null
             candidates
-                .map { connection -> async(Dispatchers.IO) { connection to testConnection(connection, token) } }
+                .map { connection -> async { connection to testConnection(connection, token) } }
                 .awaitAll()
                 .firstOrNull { it.second }
                 ?.first
         }
 
-    private fun testConnection(connection: PlexConnection, token: String): Boolean = runCatching {
-        val request = Request.Builder()
-            .url("${connection.uri}/identity")
-            .get()
-            .addHeader("Accept", "application/json")
-            .addHeader("X-Plex-Token", token)
-            .build()
-        connectClient.newCall(request).execute().use { it.isSuccessful }
+    private suspend fun testConnection(connection: PlexConnection, token: String): Boolean = runCatching {
+        connectClient.get("${connection.uri}/identity") {
+            header("Accept", "application/json")
+            header("X-Plex-Token", token)
+        }
+        true
     }.getOrDefault(false)
 }

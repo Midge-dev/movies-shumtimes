@@ -64,6 +64,7 @@ import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.settings.AppSettings
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
+import com.moviesshumtimes.tv.playback.ExoPlayerAdapter
 import com.moviesshumtimes.tv.playback.PlaybackDecision
 import com.moviesshumtimes.tv.playback.PlexPlayerFactory
 import com.moviesshumtimes.tv.playback.SubtitleOption
@@ -229,7 +230,7 @@ private fun PlayerSession(
         }
     }
 
-    val sync = remember(player) { SyncViewModel(player, relay, scope) }
+    val sync = remember(player) { SyncViewModel(ExoPlayerAdapter(player), relay, scope) }
     val connectionState by sync.connectionState.collectAsState()
     val phase by sync.phase.collectAsState()
     val waitingOn by sync.waitingOn.collectAsState()

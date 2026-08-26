@@ -44,11 +44,11 @@ import com.moviesshumtimes.tv.data.plex.PlexSeason
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.plex.PlexServerApi
-import com.moviesshumtimes.tv.data.plex.TokenStore
 import com.moviesshumtimes.tv.data.settings.RelayIdentity
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.data.settings.plexIdentityStore
 import com.moviesshumtimes.tv.data.settings.relayIdentityStore
+import com.moviesshumtimes.tv.data.settings.tokenStore
 import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
@@ -382,7 +382,7 @@ private fun AppRoot() {
     }
 
     LaunchedEffect(Unit) {
-        val token = TokenStore.loadToken(context)
+        val token = context.tokenStore.loadToken()
         if (token == null) {
             state = AppState.LoggedOut
         } else {
