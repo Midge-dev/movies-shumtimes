@@ -49,6 +49,22 @@ private data class OnDeckMediaContainer(@SerialName("Metadata") val items: List<
 @Serializable
 private data class OnDeckResponse(@SerialName("MediaContainer") val mediaContainer: OnDeckMediaContainer)
 
+// A show's own metadata, requested with includeOnDeck=1 — Plex embeds the
+// in-progress/next-up episode (if any) as a nested OnDeck element rather
+// than exposing it as its own sub-resource (there's no
+// /library/metadata/{id}/onDeck — confirmed 404 against a real server).
+@Serializable
+private data class EmbeddedOnDeck(@SerialName("Metadata") val items: List<PlexOnDeckItem> = emptyList())
+
+@Serializable
+private data class ShowMetadataWithOnDeck(@SerialName("OnDeck") val onDeck: EmbeddedOnDeck? = null)
+
+@Serializable
+private data class ShowMetadataContainer(@SerialName("Metadata") val items: List<ShowMetadataWithOnDeck> = emptyList())
+
+@Serializable
+private data class ShowMetadataResponse(@SerialName("MediaContainer") val mediaContainer: ShowMetadataContainer)
+
 @Serializable
 private data class HubsMediaContainer(@SerialName("Hub") val hubs: List<PlexHub> = emptyList())
 
@@ -87,6 +103,40 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
 
     suspend fun fetchOnDeck(): List<PlexOnDeckItem> =
         get<OnDeckResponse>("${server.baseUrl}/library/onDeck").mediaContainer.items
+
+    // Resolves what "Play" should do for a show's detail screen: the
+    // in-progress/next-up episode if the show has watch history, falling
+    // back to season 1 (skipping specials, index 0) episode 1 for a show
+    // that's never been started. Returned as a PlexOnDeckItem — same shape
+    // either way — so the caller gets parentIndex/index for the "Play S1E1"
+    // label and ratingKey for playback without a second model.
+    suspend fun fetchNextEpisodeForShow(showRatingKey: String): PlexOnDeckItem? {
+        // Best-effort: a server that doesn't populate OnDeck for this show
+        // (or an unexpected response shape) just means "nothing in
+        // progress" — fall through to the season/episode fallback below
+        // rather than failing the whole lookup.
+        val onDeck = runCatching {
+            get<ShowMetadataResponse>("${server.baseUrl}/library/metadata/$showRatingKey?includeOnDeck=1")
+                .mediaContainer.items.firstOrNull()?.onDeck?.items?.firstOrNull()
+        }.getOrNull()
+        if (onDeck != null) return onDeck
+
+        val firstSeason = fetchSeasons(showRatingKey)
+            .filter { (it.index ?: 0) > 0 }
+            .minByOrNull { it.index ?: Int.MAX_VALUE }
+            ?: return null
+        val firstEpisode = fetchEpisodes(firstSeason.ratingKey)
+            .minByOrNull { it.index ?: Int.MAX_VALUE }
+            ?: return null
+        return PlexOnDeckItem(
+            ratingKey = firstEpisode.ratingKey,
+            type = "episode",
+            title = firstEpisode.title,
+            thumb = firstEpisode.thumb,
+            parentIndex = firstSeason.index,
+            index = firstEpisode.index,
+        )
+    }
 
     suspend fun removeFromContinueWatching(ratingKey: String) {
         client.put("${server.baseUrl}/actions/removeFromContinueWatching?ratingKey=$ratingKey") { withPlexHeaders() }

@@ -164,7 +164,7 @@ private sealed interface AppState {
     // returnState mirrors Lobby/Player's field below — Settings is reachable
     // from Home now too, and Back needs to land wherever it was opened from
     // rather than always dumping into the Movies library.
-    data class Settings(val ctx: LibraryContext, val returnState: AppState) : AppState
+    data class Settings(val ctx: LibraryContext, val returnState: AppState, val relayHint: String? = null) : AppState
     // returnState mirrors Settings/Lobby/Player below — MovieDetail is now
     // reachable from Home (Recently Added/Suggestions) as well as Library,
     // so Back needs to resolve to wherever it was actually opened from.
@@ -525,6 +525,7 @@ private fun AppRoot() {
             SettingsScreen(
                 accountToken = accountToken ?: "",
                 clientIdentifier = clientIdentifier,
+                hint = current.relayHint,
                 onBack = { returnTo(current.returnState) },
                 onSaved = {
                     val token = accountToken
@@ -541,36 +542,63 @@ private fun AppRoot() {
             onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
             onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
         ) {
+            val isShow = current.ctx.selectedSection.type == SECTION_TYPE_SHOW
             MovieDetailScreen(
                 server = current.ctx.server,
                 movie = current.movie,
-                isShow = current.ctx.selectedSection.type == SECTION_TYPE_SHOW,
+                isShow = isShow,
                 onBack = { returnTo(current.returnState) },
-                onPlay = {
+                resolveNextEpisode = {
+                    runCatching {
+                        PlexServerApi(current.ctx.server, clientIdentifier).fetchNextEpisodeForShow(current.movie.ratingKey)
+                    }.getOrNull()
+                },
+                onSeasons = {
                     scope.launch {
-                        val serverApi = PlexServerApi(current.ctx.server, clientIdentifier)
-                        if (current.ctx.selectedSection.type == SECTION_TYPE_SHOW) {
-                            val fetched = runCatching { serverApi.fetchSeasons(current.movie.ratingKey) }
-                            state = fetched.fold(
-                                onSuccess = { seasons ->
-                                    AppState.ShowSeasons(current.ctx, current.movie, seasons, current.returnState)
-                                },
-                                onFailure = { AppState.Error(it.message ?: "Couldn't load seasons") },
+                        val fetched = runCatching {
+                            PlexServerApi(current.ctx.server, clientIdentifier).fetchSeasons(current.movie.ratingKey)
+                        }
+                        state = fetched.fold(
+                            onSuccess = { seasons ->
+                                AppState.ShowSeasons(current.ctx, current.movie, seasons, current.returnState)
+                            },
+                            onFailure = { AppState.Error(it.message ?: "Couldn't load seasons") },
+                        )
+                    }
+                },
+                // Play — direct to player, relay untouched. No room, no
+                // presence, no sync; this is the solo path and must never
+                // require a configured relay.
+                onPlay = { targetRatingKey ->
+                    scope.launch {
+                        val fetched = runCatching {
+                            PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(targetRatingKey)
+                        }
+                        state = fetched.fold(
+                            onSuccess = { detail -> AppState.Player(current.ctx.server, detail, current, relay = null) },
+                            onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
+                        )
+                    }
+                },
+                // Watch Together — opens the Lobby. Stays focusable with no
+                // relay configured (never disabled — a disabled control
+                // gives a couch user nothing to act on), routing to Settings
+                // with an inline hint instead.
+                onWatchTogether = { targetRatingKey ->
+                    scope.launch {
+                        val relay = ensureRelayClient()
+                        if (relay == null) {
+                            state = AppState.Settings(
+                                current.ctx,
+                                returnState = current,
+                                relayHint = "Add a relay URL to watch with friends.",
                             )
                         } else {
-                            val fetched = runCatching { serverApi.fetchMovieDetail(current.movie.ratingKey) }
+                            val fetched = runCatching {
+                                PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(targetRatingKey)
+                            }
                             state = fetched.fold(
-                                onSuccess = { detail ->
-                                    val relay = ensureRelayClient()
-                                    // No relay configured means no one to wait for —
-                                    // skip the Lobby's waiting room and go straight
-                                    // to solo playback.
-                                    if (relay != null) {
-                                        AppState.Lobby(current.ctx.server, detail, current, relay)
-                                    } else {
-                                        AppState.Player(current.ctx.server, detail, current, relay)
-                                    }
-                                },
+                                onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current, relay) },
                                 onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                             )
                         }

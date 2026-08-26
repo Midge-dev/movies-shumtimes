@@ -61,7 +61,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () -> Unit, onSaved: () -> Unit) {
+fun SettingsScreen(
+    accountToken: String,
+    clientIdentifier: String,
+    hint: String? = null,
+    onBack: () -> Unit,
+    onSaved: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var settings by remember { mutableStateOf(AppSettings()) }
@@ -171,6 +177,9 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (hint != null) {
+                    Text(hint, color = MaterialTheme.colorScheme.primary)
+                }
                 Text("Relay URL (watch-together server)")
                 ClickToTypeTextField(
                     value = settings.relayUrl ?: "",

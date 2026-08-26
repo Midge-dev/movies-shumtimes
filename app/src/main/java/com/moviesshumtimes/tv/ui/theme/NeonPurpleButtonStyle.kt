@@ -54,11 +54,20 @@ fun whiteButtonColors(): ButtonColors = ButtonDefaults.colors(
     focusedContainerColor = NeonPurple,
 )
 
+// tv-material3's OutlinedButtonDefaults.colors() defaults focusedContainerColor
+// to colorScheme.onSurface — AppOnSurface, a near-white — which combined with
+// AppWhite text below reads as unreadable white-on-white when focused. Pinning
+// every container state to transparent matches the design spec too: an
+// outlined button's container never fills, only its border/glow change.
 @Composable
 fun whiteOutlinedButtonColors(): ButtonColors = ButtonDefaults.colors(
+    containerColor = Color.Transparent,
     contentColor = AppWhite,
+    focusedContainerColor = Color.Transparent,
     focusedContentColor = AppWhite,
+    pressedContainerColor = Color.Transparent,
     pressedContentColor = AppWhite,
+    disabledContainerColor = Color.Transparent,
     disabledContentColor = AppWhite.copy(alpha = 0.5f),
 )
 

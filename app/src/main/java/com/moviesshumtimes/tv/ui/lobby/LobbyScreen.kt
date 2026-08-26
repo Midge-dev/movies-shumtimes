@@ -47,6 +47,7 @@ import com.moviesshumtimes.tv.sync.RelayEvent
 import com.moviesshumtimes.tv.sync.toChatMessage
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
@@ -137,7 +138,10 @@ fun LobbyScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(detail.title, style = MaterialTheme.typography.displaySmall, color = AppWhite)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                WatchTogetherIcon()
+                Text(detail.title, style = MaterialTheme.typography.displaySmall, color = AppWhite)
+            }
             Text(
                 "Waiting to watch together",
                 color = AppWhite,
