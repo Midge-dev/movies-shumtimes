@@ -48,7 +48,7 @@ import com.moviesshumtimes.tv.data.pairing.PairingServer
 import com.moviesshumtimes.tv.data.plex.PlexResource
 import com.moviesshumtimes.tv.data.plex.PlexResourcesApi
 import com.moviesshumtimes.tv.data.settings.AppSettings
-import com.moviesshumtimes.tv.data.settings.SettingsStore
+import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
@@ -68,7 +68,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
     var loaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        settings = SettingsStore.observe(context).first()
+        settings = context.appSettingsStore.observe().first()
         loaded = true
     }
 
@@ -318,7 +318,7 @@ fun SettingsScreen(accountToken: String, clientIdentifier: String, onBack: () ->
             Button(
                 onClick = {
                     scope.launch {
-                        SettingsStore.save(context, settings.copy(relayUrl = settings.relayUrl?.trim()?.ifBlank { null }))
+                        context.appSettingsStore.save(settings.copy(relayUrl = settings.relayUrl?.trim()?.ifBlank { null }))
                         onSaved()
                     }
                 },

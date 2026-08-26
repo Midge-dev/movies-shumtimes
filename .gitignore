@@ -9,4 +9,5 @@
 .cxx
 local.properties
 /app/build
+/shared/build
 /relay/node_modules

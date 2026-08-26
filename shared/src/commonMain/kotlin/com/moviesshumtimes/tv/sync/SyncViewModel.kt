@@ -1,6 +1,5 @@
 package com.moviesshumtimes.tv.sync
 
-import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -27,7 +26,7 @@ import kotlinx.coroutines.launch
 // start()/stop() simply no-op in that case rather than requiring callers
 // to special-case "no sync" themselves.
 class SyncViewModel(
-    private val player: ExoPlayer,
+    private val player: SyncedPlayer,
     private val relay: RelayClient?,
     private val scope: CoroutineScope,
 ) {
@@ -131,7 +130,7 @@ class SyncViewModel(
                         kind = "clockPong",
                         fromPeerId = fromPeerId,
                         pingId = pingId,
-                        remoteTimestampMs = System.currentTimeMillis(),
+                        remoteTimestampMs = nowMs(),
                     ),
                 )
             }

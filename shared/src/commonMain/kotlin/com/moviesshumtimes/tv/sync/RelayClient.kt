@@ -1,6 +1,12 @@
 package com.moviesshumtimes.tv.sync
 
 import com.moviesshumtimes.tv.data.settings.RelayIdentity
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -18,11 +24,6 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 
 private const val INITIAL_BACKOFF_MS = 1_000L
 private const val MAX_BACKOFF_MS = 30_000L
@@ -38,15 +39,22 @@ private const val MAX_BACKOFF_MS = 30_000L
 // local playback, never something that should be able to break watching a
 // movie solo or when the relay is unreachable. Reconnects automatically
 // with exponential backoff until disconnect() is called.
+//
+// The connect/send/disconnect surface stays synchronous (fire-and-forget),
+// matching the old OkHttp WebSocket's callback-driven shape, even though
+// Ktor's session API (webSocketSession/send/close) is suspend-based —
+// each dispatches onto `scope` internally instead of exposing suspend
+// functions, so call sites don't change.
 class RelayClient(
     val relayUrl: String,
     private var identity: RelayIdentity,
     private val scope: CoroutineScope,
     private val onIdentityUpdated: (RelayIdentity) -> Unit = {},
 ) {
-    private val client = OkHttpClient()
+    private val client = HttpClient { install(WebSockets) }
     private val json = Json { ignoreUnknownKeys = true }
-    private var webSocket: WebSocket? = null
+    private var session: DefaultClientWebSocketSession? = null
+    private var sessionJob: Job? = null
     private var reconnectJob: Job? = null
     private var backoffMs = INITIAL_BACKOFF_MS
     private var manuallyDisconnected = false
@@ -73,36 +81,39 @@ class RelayClient(
     private fun attemptConnect() {
         lastRejectionWasFull = false
         _connectionState.value = ConnectionState.CONNECTING
-        val request = Request.Builder().url(relayUrl).build()
-        webSocket = client.newWebSocket(
-            request,
-            object : WebSocketListener() {
-                override fun onOpen(webSocket: WebSocket, response: Response) {
-                    backoffMs = INITIAL_BACKOFF_MS
-                    val hello = buildJsonObject {
-                        put("type", "hello")
-                        put("role", "device")
-                        put("peerId", identity.peerId)
-                        identity.reconnectToken?.let { put("reconnectToken", it) }
-                    }
-                    webSocket.send(hello.toString())
-                }
+        // One coroutine owns the whole connection lifecycle: opening the
+        // session, sending "hello", and reading frames until the session
+        // ends (gracefully or not — both cases fall through to the same
+        // finally block, mirroring the old onClosed/onFailure callbacks
+        // both unconditionally calling scheduleReconnect()). Cancelling
+        // this job (see disconnect()) is itself what tears the session
+        // down, via structured concurrency, instead of a separate close
+        // call racing against it.
+        sessionJob = scope.launch {
+            try {
+                val newSession = client.webSocketSession(relayUrl)
+                session = newSession
+                backoffMs = INITIAL_BACKOFF_MS
 
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    handleFrame(text)
+                val hello = buildJsonObject {
+                    put("type", "hello")
+                    put("role", "device")
+                    put("peerId", identity.peerId)
+                    identity.reconnectToken?.let { put("reconnectToken", it) }
                 }
+                newSession.send(Frame.Text(hello.toString()))
 
-                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    _seatIndex.value = null
-                    scheduleReconnect()
+                for (frame in newSession.incoming) {
+                    if (frame is Frame.Text) handleFrame(frame.readText())
                 }
-
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    _seatIndex.value = null
-                    scheduleReconnect()
-                }
-            },
-        )
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+            } finally {
+                session = null
+                _seatIndex.value = null
+                scheduleReconnect()
+            }
+        }
     }
 
     private fun handleFrame(text: String) {
@@ -141,18 +152,19 @@ class RelayClient(
     }
 
     fun send(event: RelayEvent) {
+        val currentSession = session ?: return
         val envelope = buildJsonObject {
             put("type", "event")
             put("payload", json.encodeToJsonElement(event))
         }
-        runCatching { webSocket?.send(envelope.toString()) }
+        scope.launch { runCatching { currentSession.send(Frame.Text(envelope.toString())) } }
     }
 
     fun disconnect() {
         manuallyDisconnected = true
         reconnectJob?.cancel()
-        webSocket?.close(1000, "done")
-        webSocket = null
+        sessionJob?.cancel()
+        session = null
         _seatIndex.value = null
         _connectionState.value = ConnectionState.DISCONNECTED
     }

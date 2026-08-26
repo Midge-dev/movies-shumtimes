@@ -1,5 +1,7 @@
 package com.moviesshumtimes.tv.sync
 
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,10 +18,11 @@ import kotlinx.coroutines.launch
 // addressed to the host) and consumes pongs via [onPong]. Keeps a rolling
 // window of samples and reports the offset of the lowest-RTT sample — a
 // single clean exchange beats an average polluted by jittery ones.
+@OptIn(ExperimentalTime::class)
 class ClockSync(
     private val scope: CoroutineScope,
     private val sendPing: (pingId: Long) -> Unit,
-    private val nowMs: () -> Long = { System.currentTimeMillis() },
+    private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     private companion object {
         const val WINDOW_SIZE = 8
