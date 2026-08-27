@@ -6,6 +6,11 @@ import androidx.compose.ui.graphics.Color
 val NeonPurple = Color(0xFFAD2BD7)
 val NeonPurpleGlow = Color(0xFFE795FC)
 
+// Pressed is its own distinct tone, not just "focused held down" — design
+// spec section 04 draws it separately from both idle and focused for every
+// filled/icon control (a darker purple, no border/glow).
+val NeonPurplePressed = Color(0xFF8F22B3)
+
 // The two-tone focus-border/glow treatment used everywhere (buttons, cards)
 // — glow-to-outer-purple radial gradient built from the two colors above.
 // Defined once here instead of separately in each *Border() helper so both

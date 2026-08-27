@@ -51,23 +51,6 @@ android {
     }
 }
 
-// Several tv-material3 components used throughout the UI (FilterChip, Switch,
-// ListItem, NavigationDrawer, CardContainer, ...) are marked
-// @ExperimentalTvMaterial3Api — opting in once here beats annotating every
-// call site across a dozen files. AGP 9's built-in Kotlin support (no
-// org.jetbrains.kotlin.android plugin) means the classic android.kotlinOptions
-// DSL isn't available — configuring the KotlinCompile tasks directly instead.
-// ExperimentalMaterial3ExpressiveApi covers the one thing pulled from the
-// base (non-TV) Material3 library — LoadingIndicator/ContainedLoadingIndicator,
-// which tv-material3 has no equivalent of and which only exists pre-stable in
-// material3 1.5.0-alpha (see the version comment in libs.versions.toml).
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    compilerOptions {
-        freeCompilerArgs.add("-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api")
-        freeCompilerArgs.add("-opt-in=androidx.compose.material3.ExperimentalMaterial3ExpressiveApi")
-    }
-}
-
 // The Gradle module is named "app" (see settings.gradle.kts), so the APK
 // would otherwise default to app-debug.apk/app-release.apk — override it to
 // something recognizable for whoever's downloading it to sideload.
@@ -90,13 +73,6 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
-    implementation(libs.tv.foundation)
-    implementation(libs.tv.material)
-    // Only for ContainedLoadingIndicator — tv-material3 has no loading
-    // indicator of any kind. Pinned independently of the compose.bom
-    // platform above since the indicator is 1.5.0-alpha-only; the BOM's
-    // June 2026 snapshot only covers material3 up to the 1.4.0 stable line.
-    implementation(libs.compose.material3)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.ui)

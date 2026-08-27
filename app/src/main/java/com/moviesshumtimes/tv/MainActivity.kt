@@ -21,17 +21,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.tv.material3.LocalContentColor
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
-import androidx.tv.material3.darkColorScheme
+import com.moviesshumtimes.tv.ui.kit.LocalContentColor
+import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppBackground
 import com.moviesshumtimes.tv.ui.theme.AppOnBackground
-import com.moviesshumtimes.tv.ui.theme.AppOnSurface
-import com.moviesshumtimes.tv.ui.theme.AppOnSurfaceVariant
-import com.moviesshumtimes.tv.ui.theme.AppSurface
-import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
-import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.data.plex.PlexAccount
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.plex.PlexEpisode
@@ -87,32 +80,19 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    border = NeonPurple,
-                    primary = NeonPurple,
-                    background = AppBackground,
-                    onBackground = AppOnBackground,
-                    surface = AppSurface,
-                    onSurface = AppOnSurface,
-                    surfaceVariant = AppSurfaceVariant,
-                    onSurfaceVariant = AppOnSurfaceVariant,
-                ),
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(AppBackground),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    // A plain Modifier.background() doesn't establish content
-                    // color the way a tv-material3 Surface would — without
-                    // this, every bare Text() outside a Card/Button (screen
-                    // titles, field labels, etc.) falls back to Compose's
-                    // hardcoded default (black), unreadable on this dark theme.
-                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-                        AppRoot()
-                    }
+                // A plain Modifier.background() doesn't establish content
+                // color on its own — without this, every bare Text() outside
+                // a themed control (screen titles, field labels, etc.) falls
+                // back to Compose's hardcoded default (black), unreadable on
+                // this dark theme.
+                CompositionLocalProvider(LocalContentColor provides AppOnBackground) {
+                    AppRoot()
                 }
             }
         }

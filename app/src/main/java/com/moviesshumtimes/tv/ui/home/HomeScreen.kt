@@ -1,6 +1,9 @@
 package com.moviesshumtimes.tv.ui.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -38,33 +41,29 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
-import androidx.tv.material3.Card
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.StandardCardContainer
-import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
+import androidx.compose.ui.zIndex
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.ui.common.ShumArtwork
+import com.moviesshumtimes.tv.ui.kit.ShumButton
+import com.moviesshumtimes.tv.ui.kit.ShumCard
+import com.moviesshumtimes.tv.ui.kit.ShumCardContainer
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
+import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
-import com.moviesshumtimes.tv.ui.theme.AppScrim
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
-import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
-import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
-import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
 
 private const val TYPE_EPISODE = "episode"
 
@@ -120,7 +119,7 @@ fun HomeScreen(
         item {
             Text(
                 text = "Continue Watching",
-                style = MaterialTheme.typography.titleLarge,
+                style = ShumTypography.titleLarge,
                 modifier = Modifier.padding(start = 32.dp, top = 32.dp, bottom = 16.dp),
             )
             if (onDeck.isEmpty()) {
@@ -189,7 +188,7 @@ private fun <T> HomeRow(
     if (items.isEmpty()) return
     Text(
         text = title,
-        style = MaterialTheme.typography.titleLarge,
+        style = ShumTypography.titleLarge,
         modifier = Modifier.padding(start = 32.dp, top = 32.dp, bottom = 28.dp),
     )
     LazyRow(
@@ -227,20 +226,17 @@ private fun progressFraction(item: PlexOnDeckItem): Float {
 // Card directly instead of the hand-rolled combinedClickable Box.
 @Composable
 private fun RecentlyAddedPoster(server: PlexServer, item: PlexLibraryItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    StandardCardContainer(
+    ShumCardContainer(
         modifier = Modifier.width(160.dp),
         imageCard = { interactionSource ->
-            Card(
+            ShumCard(
                 onClick = onClick,
                 interactionSource = interactionSource,
-                border = neonPurpleCardBorder(),
-                glow = neonPurpleCardGlow(),
                 modifier = modifier.fillMaxWidth().aspectRatio(2f / 3f),
             ) {
-                AsyncImage(
+                ShumArtwork(
                     model = PlexImageUrl.of(server, item.thumb),
                     contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -258,20 +254,17 @@ private fun RecentlyAddedPoster(server: PlexServer, item: PlexLibraryItem, onCli
 
 @Composable
 private fun SuggestionPoster(server: PlexServer, item: PlexOnDeckItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    StandardCardContainer(
+    ShumCardContainer(
         modifier = Modifier.width(160.dp),
         imageCard = { interactionSource ->
-            Card(
+            ShumCard(
                 onClick = onClick,
                 interactionSource = interactionSource,
-                border = neonPurpleCardBorder(),
-                glow = neonPurpleCardGlow(),
                 modifier = modifier.fillMaxWidth().aspectRatio(2f / 3f),
             ) {
-                AsyncImage(
+                ShumArtwork(
                     model = PlexImageUrl.of(server, item.thumb),
                     contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -328,19 +321,34 @@ private fun ContinueWatchingPoster(
 
     BackHandler(enabled = confirmingRemove) { confirmingRemove = false }
 
-    StandardCardContainer(
+    // Design spec "Focus magnification": 1.04 here (vs. ShumCard's default
+    // 1.06) targets the same ~10dp of absolute growth on this wider 240dp
+    // card. Scale wraps the whole box — border, glow and content together —
+    // same as ShumCard's own placement of the transform.
+    val scale by animateFloatAsState(
+        targetValue = if (focused) 1.04f else 1f,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow),
+        label = "continueWatchingFocusScale",
+    )
+
+    ShumCardContainer(
         modifier = Modifier.width(240.dp),
         imageCard = { interactionSource ->
             Box(
                 modifier = modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
+                    .zIndex(if (focused) 1f else 0f)
+                    .graphicsLayer { scaleX = scale; scaleY = scale }
                     .clip(RoundedCornerShape(8.dp))
-                    // Same two-tone gradient as neonPurpleCardBorder() below
+                    // Same two-tone gradient border as ShumCard elsewhere
                     // (RecentlyAdded/Suggestions posters, ShowSeasons/
                     // ShowEpisodes/LibraryScreen) — this one's hand-rolled
-                    // since Card has no onLongClick to hang the remove
-                    // gesture off of, but the focus border should still
+                    // since the confirm-overlay focus trap below needs direct
+                    // access to this box's own focus state (to swap its
+                    // content and drive the border from the same `focused`
+                    // flag), which doesn't fit ShumCard's plain onClick/
+                    // onLongClick/content shape. The border should still
                     // match every other poster's, not fall back to a flat
                     // single-tone border.
                     .then(
@@ -387,10 +395,9 @@ private fun ContinueWatchingPoster(
                         onCancel = { confirmingRemove = false },
                     )
                 } else {
-                    AsyncImage(
+                    ShumArtwork(
                         model = PlexImageUrl.of(server, item.thumb),
                         contentDescription = item.title,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
                     Box(
@@ -461,16 +468,13 @@ private fun RemoveConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Remove from Continue Watching?", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
+            Text("Remove from Continue Watching?", textAlign = TextAlign.Center, style = ShumTypography.bodyLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
+                ShumButton(
                     onClick = onConfirm,
-                    colors = whiteButtonColors(),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
                     modifier = Modifier.focusRequester(removeFocus),
                 ) { Text("Remove") }
-                Button(onClick = onCancel, colors = whiteButtonColors()) { Text("Cancel") }
+                ShumButton(onClick = onCancel) { Text("Cancel") }
             }
         }
     }

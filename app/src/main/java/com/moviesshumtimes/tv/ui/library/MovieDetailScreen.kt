@@ -21,24 +21,19 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
-import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
+import com.moviesshumtimes.tv.ui.kit.ShumButton
+import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
+import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppWhite
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
-import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
-import com.moviesshumtimes.tv.ui.theme.whiteOutlinedButtonColors
 
 // Play and Watch Together are peers, not a mode toggle (design spec 05b):
 // Play always goes straight to solo playback, relay untouched — it must
@@ -84,11 +79,14 @@ fun MovieDetailScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AsyncImage(
+        ShumArtwork(
             model = PlexImageUrl.of(server, movie.art ?: movie.thumb),
             contentDescription = null,
-            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
+            // Design spec 05c: grain drops to 30% for a full-bleed backdrop
+            // this size, since it sits directly under the title/actions
+            // scrim (the Column drawn right after this, still on top).
+            noiseOpacity = 0.3f,
         )
         Column(
             modifier = Modifier
@@ -97,7 +95,7 @@ fun MovieDetailScreen(
                 .background(Brush.verticalGradient(listOf(Color.Transparent, AppScrim)))
                 .padding(48.dp),
         ) {
-            Text(text = movie.title, style = MaterialTheme.typography.displaySmall, color = AppWhite)
+            Text(text = movie.title, style = ShumTypography.displaySmall, color = AppWhite)
             movie.year?.let { year ->
                 Text(text = year.toString(), color = AppWhite, modifier = Modifier.padding(top = 8.dp))
             }
@@ -108,31 +106,18 @@ fun MovieDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.padding(top = 24.dp),
             ) {
-                Button(
+                ShumButton(
                     onClick = { playTarget?.let(onPlay) },
-                    colors = whiteButtonColors(),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
                     modifier = Modifier.focusRequester(playFocus),
                 ) {
                     Text(playLabel)
                 }
-                OutlinedButton(
-                    onClick = { playTarget?.let(onWatchTogether) },
-                    colors = whiteOutlinedButtonColors(),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
-                ) {
+                ShumOutlinedButton(onClick = { playTarget?.let(onWatchTogether) }) {
                     WatchTogetherIcon()
                     Text("Watch Together", modifier = Modifier.padding(start = 12.dp))
                 }
                 if (isShow) {
-                    OutlinedButton(
-                        onClick = onSeasons,
-                        colors = whiteOutlinedButtonColors(),
-                        border = neonPurpleButtonBorder(),
-                        glow = neonPurpleButtonGlow(),
-                    ) {
+                    ShumOutlinedButton(onClick = onSeasons) {
                         Text("Seasons")
                     }
                 }

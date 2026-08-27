@@ -18,12 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.settings.plexIdentityStore
 import com.moviesshumtimes.tv.data.settings.tokenStore
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
+import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import kotlinx.coroutines.delay
 
@@ -94,7 +94,7 @@ fun AuthScreen(onLoggedIn: (token: String) -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(24.dp),
                         ) {
                             Text("Scan with your phone, or on any device visit plex.tv/link, then enter:")
-                            Text(current.code, style = MaterialTheme.typography.displayMedium)
+                            Text(current.code, style = ShumTypography.displayMedium)
                         }
                     }
                 }

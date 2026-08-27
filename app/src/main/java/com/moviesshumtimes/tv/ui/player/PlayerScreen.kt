@@ -54,15 +54,10 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
-import androidx.tv.material3.Icon
-import androidx.tv.material3.IconButton
-import androidx.tv.material3.ListItem
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.RadioButton
-import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.settings.AppSettings
+import com.moviesshumtimes.tv.data.settings.ChatOverlayCorner
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.playback.ExoPlayerAdapter
 import com.moviesshumtimes.tv.playback.PlaybackDecision
@@ -78,13 +73,16 @@ import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.SyncViewModel
 import com.moviesshumtimes.tv.ui.common.AppLoadingIndicator
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
+import com.moviesshumtimes.tv.ui.kit.Icon
+import com.moviesshumtimes.tv.ui.kit.ShumIconButton
+import com.moviesshumtimes.tv.ui.kit.ShumListItem
+import com.moviesshumtimes.tv.ui.kit.ShumRadioButton
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
+import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
-import com.moviesshumtimes.tv.ui.theme.whiteIconButtonColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -169,6 +167,7 @@ fun PlayerScreen(
             relay = relay,
             maxVideoBitrateKbps = currentSettings.maxVideoBitrateKbps,
             showChatOverlay = currentSettings.showChatOverlay,
+            chatOverlayCorner = currentSettings.chatOverlayCorner,
             subtitleOptions = subtitleChoices,
             selectedSubtitleStreamId = subtitleStreamId,
             onPlayerCreated = { activePlayer = it },
@@ -197,6 +196,7 @@ private fun PlayerSession(
     relay: RelayClient?,
     maxVideoBitrateKbps: Int,
     showChatOverlay: Boolean,
+    chatOverlayCorner: ChatOverlayCorner,
     subtitleOptions: List<SubtitleOption>,
     selectedSubtitleStreamId: Long?,
     onPlayerCreated: (ExoPlayer) -> Unit,
@@ -468,9 +468,16 @@ private fun PlayerSession(
             )
         }
         if (showChatOverlay) {
+            val chatAlignment = when (chatOverlayCorner) {
+                ChatOverlayCorner.TOP_START -> Alignment.TopStart
+                ChatOverlayCorner.TOP_END -> Alignment.TopEnd
+                ChatOverlayCorner.BOTTOM_START -> Alignment.BottomStart
+                ChatOverlayCorner.BOTTOM_END -> Alignment.BottomEnd
+            }
             ChatOverlay(
                 messages = sync.chatMessages,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+                corner = chatOverlayCorner,
+                modifier = Modifier.align(chatAlignment).padding(24.dp),
             )
         }
         if (controlsVisible) {
@@ -569,6 +576,8 @@ private fun PlayerControlsBar(
                     // closest equivalent this component supports.
                     setPlayedColor(NeonPurple.toArgb())
                     setScrubberColor(NeonPurpleGlow.toArgb())
+                    setBufferedColor(AppWhite.copy(alpha = 0.4f).toArgb())
+                    setUnplayedColor(AppWhite.copy(alpha = 0.25f).toArgb())
                     setOnKeyListener { _, keyCode, event ->
                         if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
                         onSeekKey(keyCode, event.repeatCount)
@@ -582,19 +591,11 @@ private fun PlayerControlsBar(
             horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(
-                onClick = onRewind,
-                colors = whiteIconButtonColors(),
-                border = neonPurpleButtonBorder(),
-                glow = neonPurpleButtonGlow(),
-            ) {
+            ShumIconButton(onClick = onRewind) {
                 Icon(Icons.Default.Replay10, contentDescription = "Rewind 10 seconds", tint = AppWhite)
             }
-            IconButton(
+            ShumIconButton(
                 onClick = onPlayPause,
-                colors = whiteIconButtonColors(),
-                border = neonPurpleButtonBorder(),
-                glow = neonPurpleButtonGlow(),
                 modifier = Modifier.focusRequester(playPauseFocusRequester),
             ) {
                 Icon(
@@ -603,33 +604,17 @@ private fun PlayerControlsBar(
                     tint = AppWhite,
                 )
             }
-            IconButton(
-                onClick = onForward,
-                colors = whiteIconButtonColors(),
-                border = neonPurpleButtonBorder(),
-                glow = neonPurpleButtonGlow(),
-            ) {
+            ShumIconButton(onClick = onForward) {
                 Icon(Icons.Default.Forward10, contentDescription = "Forward 10 seconds", tint = AppWhite)
             }
-            IconButton(
-                onClick = onOpenSubtitles,
-                enabled = subtitlesAvailable,
-                colors = whiteIconButtonColors(),
-                border = neonPurpleButtonBorder(),
-                glow = neonPurpleButtonGlow(),
-            ) {
+            ShumIconButton(onClick = onOpenSubtitles, enabled = subtitlesAvailable) {
                 Icon(
                     Icons.Default.ClosedCaption,
                     contentDescription = "Subtitles",
                     tint = AppWhite.copy(alpha = if (subtitlesAvailable) 1f else 0.5f),
                 )
             }
-            IconButton(
-                onClick = onOpenBitrate,
-                colors = whiteIconButtonColors(),
-                border = neonPurpleButtonBorder(),
-                glow = neonPurpleButtonGlow(),
-            ) {
+            ShumIconButton(onClick = onOpenBitrate) {
                 Icon(Icons.Default.HighQuality, contentDescription = "Quality", tint = AppWhite)
             }
         }
@@ -660,7 +645,7 @@ private fun SubtitleMenu(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(text = "Subtitles", color = AppWhite, style = MaterialTheme.typography.titleMedium)
+        Text(text = "Subtitles", color = AppWhite, style = ShumTypography.titleMedium)
         // Plain Column had no height cap, so a title with many language
         // tracks just grew past the screen edge — D-pad Down still moved
         // focus onto those off-screen rows, but with nothing to auto-scroll
@@ -671,11 +656,11 @@ private fun SubtitleMenu(
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             itemsIndexed(options) { index, option ->
                 val selected = option.streamId == selectedStreamId
-                ListItem(
+                ShumListItem(
                     selected = selected,
                     onClick = { onSelect(option) },
                     headlineContent = { Text(option.label) },
-                    leadingContent = { RadioButton(selected = selected, onClick = null) },
+                    leadingContent = { ShumRadioButton(selected = selected) },
                     modifier = Modifier
                         .focusRequester(focusRequesters[index])
                         .focusProperties {
@@ -715,14 +700,14 @@ private fun BitrateMenu(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(text = "Quality", color = AppWhite, style = MaterialTheme.typography.titleMedium)
+        Text(text = "Quality", color = AppWhite, style = ShumTypography.titleMedium)
         presets.forEachIndexed { index, preset ->
             val selected = preset.kbps == selectedKbps
-            ListItem(
+            ShumListItem(
                 selected = selected,
                 onClick = { onSelect(preset.kbps) },
                 headlineContent = { Text(preset.label) },
-                leadingContent = { RadioButton(selected = selected, onClick = null) },
+                leadingContent = { ShumRadioButton(selected = selected) },
                 modifier = Modifier
                     .focusRequester(focusRequesters[index])
                     .focusProperties {

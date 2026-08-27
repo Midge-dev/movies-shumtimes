@@ -31,12 +31,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
-import androidx.tv.material3.Button
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
-import androidx.tv.material3.Surface
-import androidx.tv.material3.SurfaceDefaults
-import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.R
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
@@ -48,13 +42,14 @@ import com.moviesshumtimes.tv.sync.toChatMessage
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
+import com.moviesshumtimes.tv.ui.kit.ShumButton
+import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
+import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppScrim
+import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
-import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
-import com.moviesshumtimes.tv.ui.theme.whiteOutlinedButtonColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.net.URI
@@ -140,7 +135,7 @@ fun LobbyScreen(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 WatchTogetherIcon()
-                Text(detail.title, style = MaterialTheme.typography.displaySmall, color = AppWhite)
+                Text(detail.title, style = ShumTypography.displaySmall, color = AppWhite)
             }
             Text(
                 "Waiting to watch together",
@@ -163,24 +158,16 @@ fun LobbyScreen(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.padding(top = 48.dp)) {
-                Button(
+                ShumButton(
                     onClick = {
                         relay.send(RelayEvent(kind = "start", fromPeerId = relay.myPeerId, username = localUsername))
                         onStart()
                     },
-                    colors = whiteButtonColors(),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
                 ) {
                     Text("Start")
                 }
 
-                Button(
-                    onClick = { showChatModal = true },
-                    colors = whiteButtonColors(),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
-                ) {
+                ShumButton(onClick = { showChatModal = true }) {
                     Text("Chat QR code")
                 }
             }
@@ -223,9 +210,8 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
         modifier = Modifier.fillMaxSize().background(AppScrim.copy(alpha = 0.85f)),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            modifier = Modifier.widthIn(max = 560.dp).padding(vertical = 24.dp),
-            colors = SurfaceDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        Box(
+            modifier = Modifier.widthIn(max = 560.dp).padding(vertical = 24.dp).background(AppSurfaceVariant),
         ) {
         Column(
             modifier = Modifier
@@ -233,7 +219,7 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
                 .padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Join the chat", style = MaterialTheme.typography.headlineSmall, color = AppWhite)
+            Text("Join the chat", style = ShumTypography.headlineMedium, color = AppWhite)
 
             if (chatUrl == null) {
                 Text(
@@ -251,15 +237,14 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
                         .padding(12.dp),
                 )
                 Text("Scan with your phone, or visit:", color = AppWhite, modifier = Modifier.padding(top = 20.dp))
-                Text(chatUrl, color = AppWhite, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
+                Text(chatUrl, color = AppWhite, style = ShumTypography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
             }
 
             // Secondary/dismiss action — OutlinedButton reads as lower
             // emphasis than the solid NeonPurple buttons used for primary
             // actions elsewhere (Start, Save & continue).
-            OutlinedButton(
+            ShumOutlinedButton(
                 onClick = onDismiss,
-                colors = whiteOutlinedButtonColors(),
                 modifier = Modifier.padding(top = 28.dp).focusRequester(closeFocusRequester),
             ) {
                 Text("Close")
@@ -309,7 +294,7 @@ private fun LobbyPersonCard(username: String, avatarUrl: String?, present: Boole
                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                 )
             } else {
-                Text(username.take(1).uppercase(), style = MaterialTheme.typography.headlineMedium, color = AppWhite)
+                Text(username.take(1).uppercase(), style = ShumTypography.headlineMedium, color = AppWhite)
             }
         }
         Text(username, color = AppWhite, modifier = Modifier.padding(top = 12.dp))

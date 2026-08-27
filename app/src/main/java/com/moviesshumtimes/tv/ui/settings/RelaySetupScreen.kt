@@ -29,20 +29,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
-import androidx.tv.material3.Text
 import com.moviesshumtimes.tv.data.pairing.PairingServer
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.kit.ShumButton
+import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
+import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.theme.AppOnSurface
+import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppWhite
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonBorder
-import com.moviesshumtimes.tv.ui.theme.neonPurpleButtonGlow
-import com.moviesshumtimes.tv.ui.theme.whiteButtonColors
-import com.moviesshumtimes.tv.ui.theme.whiteOutlinedButtonColors
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -90,7 +88,7 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                 modifier = Modifier.widthIn(max = 640.dp).verticalScroll(scrollState),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Set up watch-together", style = MaterialTheme.typography.headlineMedium)
+                Text("Set up watch-together", style = ShumTypography.headlineMedium)
                 Text(
                     "Movies Shumtimes syncs playback with whoever you're watching with, over a " +
                         "relay server. Paste its URL below, or scan the QR from your phone.",
@@ -101,16 +99,16 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                 ClickToTypeTextField(
                     value = relayUrl,
                     onValueChange = { relayUrl = it },
-                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
+                    textStyle = TextStyle(color = AppOnSurface),
                     modifier = Modifier
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .background(AppSurfaceVariant)
                         .padding(12.dp)
                         .widthIn(min = 500.dp)
                         .focusRequester(relayUrlFocus)
                         .focusProperties { down = pairButtonFocus },
                 )
 
-                Button(
+                ShumButton(
                     onClick = {
                         pairingError = null
                         val server = PairingServer(
@@ -131,9 +129,6 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                             pairingError = "Couldn't find a Wi-Fi address — is the TV connected to a network?"
                         }
                     },
-                    colors = whiteButtonColors(),
-                    border = neonPurpleButtonBorder(),
-                    glow = neonPurpleButtonGlow(),
                     modifier = Modifier
                         .padding(top = 16.dp)
                         .focusRequester(pairButtonFocus)
@@ -155,7 +150,7 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
                         modifier = Modifier
                             .padding(top = 24.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .background(AppSurfaceVariant)
                             .padding(24.dp),
                     ) {
                         QrCodeImage(
@@ -164,15 +159,14 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("Scan with your phone (same Wi-Fi as the TV), or visit:")
-                            Text(pairingUrl!!, style = MaterialTheme.typography.bodyLarge)
+                            Text(pairingUrl!!, style = ShumTypography.bodyLarge)
                             Text("Paste the relay URL there and it'll appear here automatically.")
-                            OutlinedButton(
+                            ShumOutlinedButton(
                                 onClick = {
                                     pairingServer?.stop()
                                     pairingServer = null
                                     pairingUrl = null
                                 },
-                                colors = whiteOutlinedButtonColors(),
                                 modifier = Modifier
                                     .focusRequester(cancelPairingFocus)
                                     .focusProperties {
@@ -187,12 +181,9 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.padding(top = 32.dp)) {
-                    Button(
+                    ShumButton(
                         onClick = { scope.launch { saveAndContinue() } },
                         enabled = relayUrl.isNotBlank(),
-                        colors = whiteButtonColors(),
-                        border = neonPurpleButtonBorder(),
-                        glow = neonPurpleButtonGlow(),
                         modifier = Modifier
                             .focusRequester(saveFocus)
                             .focusProperties {
@@ -203,9 +194,8 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                         Text("Save & continue")
                     }
 
-                    OutlinedButton(
+                    ShumOutlinedButton(
                         onClick = onDone,
-                        colors = whiteOutlinedButtonColors(),
                         modifier = Modifier.focusRequester(skipFocus).focusProperties { up = saveFocus },
                     ) {
                         Text("Skip for now")

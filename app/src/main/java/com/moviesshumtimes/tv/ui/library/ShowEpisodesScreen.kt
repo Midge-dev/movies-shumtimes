@@ -18,18 +18,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Card
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexEpisode
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexServer
-import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
-import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
+import com.moviesshumtimes.tv.ui.common.ShumArtwork
+import com.moviesshumtimes.tv.ui.kit.ShumCard
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
+import com.moviesshumtimes.tv.ui.kit.Text
 
 @Composable
 fun ShowEpisodesScreen(
@@ -52,8 +49,8 @@ fun ShowEpisodesScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.padding(start = 32.dp, top = 16.dp, end = 32.dp, bottom = 24.dp)) {
-            Text(text = showTitle, style = MaterialTheme.typography.displaySmall)
-            Text(text = seasonTitle, style = MaterialTheme.typography.bodyLarge)
+            Text(text = showTitle, style = ShumTypography.displaySmall)
+            Text(text = seasonTitle, style = ShumTypography.bodyLarge)
         }
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
@@ -85,16 +82,13 @@ fun ShowEpisodesScreen(
 private fun EpisodeRow(server: PlexServer, episode: PlexEpisode, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val heading = episode.index?.let { "${it}. ${episode.title}" } ?: episode.title
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-        Card(
+        ShumCard(
             onClick = onClick,
-            border = neonPurpleCardBorder(),
-            glow = neonPurpleCardGlow(),
             modifier = modifier.width(160.dp).height(90.dp),
         ) {
-            AsyncImage(
+            ShumArtwork(
                 model = PlexImageUrl.of(server, episode.thumb),
                 contentDescription = episode.title,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
         }

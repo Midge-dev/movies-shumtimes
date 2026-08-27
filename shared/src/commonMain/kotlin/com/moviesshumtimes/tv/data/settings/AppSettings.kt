@@ -8,6 +8,12 @@ import com.russhwolf.settings.coroutines.getStringOrNullFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
+// Design spec section 07: which screen corner the chat toast stack anchors
+// to. Stack growth direction and text alignment both derive from this in
+// ChatOverlay — top corners stack downward (newest nearest the corner), text
+// follows the horizontal edge (START = left, END = right).
+enum class ChatOverlayCorner { TOP_START, TOP_END, BOTTOM_START, BOTTOM_END }
+
 data class AppSettings(
     // null until configured — no baked-in/placeholder fallback, since one
     // doesn't generalize once this app is shared beyond one household's
@@ -22,6 +28,7 @@ data class AppSettings(
     // this is off — it only stops rendering the fading toast bubbles over
     // the video for viewers who find them distracting.
     val showChatOverlay: Boolean = true,
+    val chatOverlayCorner: ChatOverlayCorner = ChatOverlayCorner.BOTTOM_END,
     // Plex resource machineIdentifier of the server to browse, or null to
     // use the default auto-pick heuristic (see PlexResourcesApi.findReachableServer).
     val selectedServerId: String? = null,
@@ -48,7 +55,18 @@ private const val RELAY_URL_KEY = "relay_url"
 private const val MAX_BITRATE_KEY = "max_video_bitrate_kbps"
 private const val FORCE_BURN_KEY = "force_burn_subtitles"
 private const val SHOW_CHAT_OVERLAY_KEY = "show_chat_overlay"
+private const val CHAT_OVERLAY_CORNER_KEY = "chat_overlay_corner"
 private const val SELECTED_SERVER_ID_KEY = "selected_server_id"
+
+// combine() only has named overloads up to 5 flows, so the six settings
+// fields are combined in two groups of four/three (see observe() below)
+// rather than one flat call.
+private data class BaseSettings(
+    val relayUrl: String?,
+    val maxBitrateKbps: Int,
+    val forceBurnSubtitles: Boolean,
+    val showChatOverlay: Boolean,
+)
 
 // `settings` is whatever platform-native key-value store the caller wires
 // up — SharedPreferences-backed on Android, NSUserDefaults-backed on
@@ -57,14 +75,30 @@ private const val SELECTED_SERVER_ID_KEY = "selected_server_id"
 // Settings abstraction).
 class SettingsStore(private val settings: ObservableSettings) {
     @OptIn(ExperimentalSettingsApi::class)
-    fun observe(): Flow<AppSettings> = combine(
-        settings.getStringOrNullFlow(RELAY_URL_KEY),
-        settings.getIntFlow(MAX_BITRATE_KEY, AppSettings.DEFAULT_MAX_BITRATE_KBPS),
-        settings.getBooleanFlow(FORCE_BURN_KEY, false),
-        settings.getBooleanFlow(SHOW_CHAT_OVERLAY_KEY, true),
-        settings.getStringOrNullFlow(SELECTED_SERVER_ID_KEY),
-    ) { relayUrl, maxBitrateKbps, forceBurnSubtitles, showChatOverlay, selectedServerId ->
-        AppSettings(relayUrl, maxBitrateKbps, forceBurnSubtitles, showChatOverlay, selectedServerId)
+    fun observe(): Flow<AppSettings> {
+        val base = combine(
+            settings.getStringOrNullFlow(RELAY_URL_KEY),
+            settings.getIntFlow(MAX_BITRATE_KEY, AppSettings.DEFAULT_MAX_BITRATE_KBPS),
+            settings.getBooleanFlow(FORCE_BURN_KEY, false),
+            settings.getBooleanFlow(SHOW_CHAT_OVERLAY_KEY, true),
+        ) { relayUrl, maxBitrateKbps, forceBurnSubtitles, showChatOverlay ->
+            BaseSettings(relayUrl, maxBitrateKbps, forceBurnSubtitles, showChatOverlay)
+        }
+        return combine(
+            base,
+            settings.getStringOrNullFlow(SELECTED_SERVER_ID_KEY),
+            settings.getStringOrNullFlow(CHAT_OVERLAY_CORNER_KEY),
+        ) { b, selectedServerId, cornerName ->
+            AppSettings(
+                relayUrl = b.relayUrl,
+                maxVideoBitrateKbps = b.maxBitrateKbps,
+                forceBurnSubtitles = b.forceBurnSubtitles,
+                showChatOverlay = b.showChatOverlay,
+                chatOverlayCorner = ChatOverlayCorner.entries.firstOrNull { it.name == cornerName }
+                    ?: ChatOverlayCorner.BOTTOM_END,
+                selectedServerId = selectedServerId,
+            )
+        }
     }
 
     suspend fun save(appSettings: AppSettings) {
@@ -76,6 +110,7 @@ class SettingsStore(private val settings: ObservableSettings) {
         settings.putInt(MAX_BITRATE_KEY, appSettings.maxVideoBitrateKbps)
         settings.putBoolean(FORCE_BURN_KEY, appSettings.forceBurnSubtitles)
         settings.putBoolean(SHOW_CHAT_OVERLAY_KEY, appSettings.showChatOverlay)
+        settings.putString(CHAT_OVERLAY_CORNER_KEY, appSettings.chatOverlayCorner.name)
         if (appSettings.selectedServerId != null) {
             settings.putString(SELECTED_SERVER_ID_KEY, appSettings.selectedServerId)
         } else {

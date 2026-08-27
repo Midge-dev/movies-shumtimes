@@ -18,19 +18,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Card
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.StandardCardContainer
-import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexSeason
 import com.moviesshumtimes.tv.data.plex.PlexServer
-import com.moviesshumtimes.tv.ui.theme.neonPurpleCardBorder
-import com.moviesshumtimes.tv.ui.theme.neonPurpleCardGlow
+import com.moviesshumtimes.tv.ui.common.ShumArtwork
+import com.moviesshumtimes.tv.ui.kit.ShumCard
+import com.moviesshumtimes.tv.ui.kit.ShumCardContainer
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
+import com.moviesshumtimes.tv.ui.kit.Text
+
+private const val GRID_COLUMNS = 5
 
 @Composable
 fun ShowSeasonsScreen(
@@ -53,11 +52,11 @@ fun ShowSeasonsScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
             text = showTitle,
-            style = MaterialTheme.typography.displaySmall,
+            style = ShumTypography.displaySmall,
             modifier = Modifier.padding(start = 32.dp, top = 16.dp, end = 32.dp, bottom = 24.dp),
         )
         LazyVerticalGrid(
-            columns = GridCells.Fixed(5),
+            columns = GridCells.Fixed(GRID_COLUMNS),
             contentPadding = PaddingValues(32.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -69,6 +68,7 @@ fun ShowSeasonsScreen(
                     season = season,
                     onClick = { onSelect(season) },
                     modifier = if (index == 0) Modifier.focusRequester(firstItemFocus) else Modifier,
+                    staggerDelayMs = (index % GRID_COLUMNS) * 120,
                 )
             }
         }
@@ -76,22 +76,27 @@ fun ShowSeasonsScreen(
 }
 
 @Composable
-private fun SeasonPoster(server: PlexServer, season: PlexSeason, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    StandardCardContainer(
+private fun SeasonPoster(
+    server: PlexServer,
+    season: PlexSeason,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    staggerDelayMs: Int = 0,
+) {
+    ShumCardContainer(
         modifier = Modifier.width(160.dp),
         imageCard = { interactionSource ->
-            Card(
+            ShumCard(
                 onClick = onClick,
                 interactionSource = interactionSource,
-                border = neonPurpleCardBorder(),
-                glow = neonPurpleCardGlow(),
                 modifier = modifier.fillMaxWidth().aspectRatio(2f / 3f),
             ) {
-                AsyncImage(
+                ShumArtwork(
                     model = PlexImageUrl.of(server, season.thumb),
                     contentDescription = season.title,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                    noiseOpacity = 0.4f,
+                    staggerDelayMs = staggerDelayMs,
                 )
             }
         },

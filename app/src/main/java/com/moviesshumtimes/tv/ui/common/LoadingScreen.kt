@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Text
+import com.moviesshumtimes.tv.ui.kit.Text
 
 // Full-screen "please wait" state (login handoff, connecting to a server, …)
 // — spinner-plus-message replacing what used to be bare Text(), so these
