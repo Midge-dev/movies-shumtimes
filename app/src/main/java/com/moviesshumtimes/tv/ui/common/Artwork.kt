@@ -1,8 +1,7 @@
 package com.moviesshumtimes.tv.ui.common
 
-import android.graphics.Bitmap
-import android.graphics.BitmapShader
-import android.graphics.Shader
+import android.content.Context
+import android.graphics.BitmapFactory
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.EaseOut
@@ -21,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,13 +32,17 @@ import androidx.compose.ui.geometry.maxDimension
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ShaderBrush
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import coil3.compose.AsyncImagePainter
 import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
+import com.moviesshumtimes.tv.R
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 // Design spec section 05c "Artwork loading state" ("lost signal"): every
@@ -48,9 +52,7 @@ import kotlin.random.Random
 // replacement for a plain Coil AsyncImage call that adds this placeholder
 // plus a 220ms cross-fade once the real artwork lands.
 
-private const val NOISE_TILE_PX = 140
-private const val JITTER_RANGE_PX = 10f
-private const val JITTER_FRAME_MS = 333L
+private const val FRAME_HOLD_MS = 333L
 private const val ROLL_DURATION_MS = 2800
 private const val ROLL_BAR_HEIGHT_FRACTION = 0.34f
 private const val BREATHE_HALF_CYCLE_MS = 1200
@@ -62,19 +64,32 @@ private val VignetteColor = Color(0xFFAD2BD7).copy(alpha = 0.22f)
 private val RollBarColor = Color(0xFFE795FC).copy(alpha = 0.11f)
 private val ScanlineColor = Color.Black.copy(alpha = 0.22f)
 
-// Generated once and shared by every placeholder on screen — one 140x140
-// grayscale noise tile, tiled via a BitmapShader, matching the design
-// spec's own Compose sketch. Regenerating this per-instance would mean one
-// bitmap allocation per visible card instead of one for the whole app.
-private val noiseBrush: Brush by lazy {
-    val bitmap = Bitmap.createBitmap(NOISE_TILE_PX, NOISE_TILE_PX, Bitmap.Config.ARGB_8888)
-    val random = Random(1)
-    val pixels = IntArray(NOISE_TILE_PX * NOISE_TILE_PX) {
-        val v = random.nextInt(256)
-        (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+// Six real "lost signal" frames pulled from a captured TV static clip
+// (grayscale, ~480x270), decoded once and shared by every placeholder on
+// screen — matching the design spec's own "generated once" guidance for
+// the noise layer, just sourced from real footage instead of a procedural
+// random tile. Cycling between distinct frames (rather than translating one
+// tiled texture) also sidesteps the visible-seam problem a small repeating
+// photo would otherwise have.
+private object StaticNoiseFrames {
+    private val resIds = intArrayOf(
+        R.drawable.static_noise_1,
+        R.drawable.static_noise_2,
+        R.drawable.static_noise_3,
+        R.drawable.static_noise_4,
+        R.drawable.static_noise_5,
+        R.drawable.static_noise_6,
+    )
+    private var cached: List<ImageBitmap>? = null
+
+    fun get(context: Context): List<ImageBitmap> {
+        cached?.let { return it }
+        val decoded = resIds.map { resId ->
+            BitmapFactory.decodeResource(context.resources, resId).asImageBitmap()
+        }
+        cached = decoded
+        return decoded
     }
-    bitmap.setPixels(pixels, 0, NOISE_TILE_PX, 0, 0, NOISE_TILE_PX, NOISE_TILE_PX)
-    ShaderBrush(BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT))
 }
 
 private enum class ArtworkPhase { LOADING, LOADED, FAILED }
@@ -134,18 +149,21 @@ fun ShumArtwork(
 
 @Composable
 private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDelayMs: Int) {
-    // 3fps jitter, not per-frame — true 60fps grain is expensive on a Fire
-    // TV stick and physically uncomfortable at couch distance (per spec).
-    var jitter by remember { mutableStateOf(Offset.Zero) }
-    LaunchedEffect(Unit) {
+    val context = LocalContext.current
+    val frames = remember(context) { StaticNoiseFrames.get(context) }
+    // Random start + random (not sequential) next frame each tick, so two
+    // simultaneously-loading cards showing the same clip don't flicker in
+    // visible lockstep. 3fps, not per-frame — true 60fps grain is expensive
+    // on a Fire TV stick and physically uncomfortable at couch distance
+    // (per spec).
+    var frameIndex by remember { mutableIntStateOf(Random.nextInt(frames.size)) }
+    LaunchedEffect(frames) {
         while (true) {
-            jitter = Offset(
-                x = Random.nextFloat() * 2f * JITTER_RANGE_PX - JITTER_RANGE_PX,
-                y = Random.nextFloat() * 2f * JITTER_RANGE_PX - JITTER_RANGE_PX,
-            )
-            delay(JITTER_FRAME_MS)
+            delay(FRAME_HOLD_MS)
+            frameIndex = Random.nextInt(frames.size)
         }
     }
+    val frame = frames[frameIndex]
 
     val transition = rememberInfiniteTransition(label = "posterPlaceholder")
     // Ceiling is noiseOpacity itself (the spec's own "cap the grain so a
@@ -162,9 +180,9 @@ private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDe
     )
     // staggerDelayMs phase-shifts this specific animation (via
     // StartOffsetType.FastForward) so a grid of these doesn't pulse in
-    // unison — the jitter and breathe above intentionally stay unstaggered/
-    // shared-looking, per spec's own guidance which only calls out the roll
-    // bar's phase for staggering.
+    // unison — the frame cycling and breathing above intentionally stay
+    // unstaggered/shared-looking, per spec's own guidance which only calls
+    // out the roll bar's phase for staggering.
     val rollProgress by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -179,11 +197,6 @@ private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDe
         modifier = modifier
             .background(PlaceholderBase)
             .drawWithCache {
-                // Oversized by the jitter's full travel range so translating
-                // the tile for jitter never under-covers an edge.
-                val margin = JITTER_RANGE_PX * 2
-                val noiseTopLeft = Offset(-margin, -margin)
-                val noiseSize = Size(size.width + margin * 2, size.height + margin * 2)
                 val barHeight = size.height * ROLL_BAR_HEIGHT_FRACTION
                 val rollBarBrush = Brush.verticalGradient(
                     0f to Color.Transparent,
@@ -199,16 +212,18 @@ private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDe
                     center = Offset(size.width / 2f, size.height / 2f),
                     radius = size.maxDimension * 0.75f,
                 )
+                val dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
                 onDrawBehind {
-                    translate(left = jitter.x, top = jitter.y) {
-                        drawRect(
-                            brush = noiseBrush,
-                            topLeft = noiseTopLeft,
-                            size = noiseSize,
-                            alpha = breathe,
-                            blendMode = BlendMode.Screen,
-                        )
-                    }
+                    // Stretched to fill rather than tiled — a still frame
+                    // has no seamless edge, so tiling it would show a
+                    // repeating grid; noise has no directional structure, so
+                    // a mild stretch to an odd aspect ratio isn't visible.
+                    drawImage(
+                        image = frame,
+                        dstSize = dstSize,
+                        alpha = breathe,
+                        blendMode = BlendMode.Screen,
+                    )
                     drawRect(brush = vignetteBrush)
                     val barTop = rollProgress * (size.height + barHeight * 1.8f) - barHeight * 0.4f
                     drawRect(brush = rollBarBrush, topLeft = Offset(0f, barTop), size = Size(size.width, barHeight))

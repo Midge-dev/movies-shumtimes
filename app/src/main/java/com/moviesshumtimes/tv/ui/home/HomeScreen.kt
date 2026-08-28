@@ -67,6 +67,11 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
 private const val TYPE_EPISODE = "episode"
 
+// Loading-placeholder roll-bar phase repeats every this-many row items —
+// design spec 05c: without staggering, every simultaneously-loading card in
+// a row pulses its roll-bar band in visible unison.
+private const val ROW_STAGGER_PERIOD = 6
+
 @Composable
 fun HomeScreen(
     server: PlexServer,
@@ -144,6 +149,7 @@ fun HomeScreen(
                             } else {
                                 Modifier
                             },
+                            staggerDelayMs = (index % ROW_STAGGER_PERIOD) * 120,
                         )
                     }
                 }
@@ -157,6 +163,7 @@ fun HomeScreen(
                     item = item,
                     onClick = { onSelectRecentlyAdded(item) },
                     modifier = if (index == 0 && recentlyAddedGetsFocus) Modifier.focusRequester(firstItemFocus) else Modifier,
+                    staggerDelayMs = (index % ROW_STAGGER_PERIOD) * 120,
                 )
             }
         }
@@ -168,6 +175,7 @@ fun HomeScreen(
                     item = item,
                     onClick = { onSelectSuggestion(item) },
                     modifier = if (index == 0 && suggestionsGetsFocus) Modifier.focusRequester(firstItemFocus) else Modifier,
+                    staggerDelayMs = (index % ROW_STAGGER_PERIOD) * 120,
                 )
             }
         }
@@ -225,7 +233,13 @@ private fun progressFraction(item: PlexOnDeckItem): Float {
 // progress-bar/long-press-remove behavior, so they use tv-material3's own
 // Card directly instead of the hand-rolled combinedClickable Box.
 @Composable
-private fun RecentlyAddedPoster(server: PlexServer, item: PlexLibraryItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun RecentlyAddedPoster(
+    server: PlexServer,
+    item: PlexLibraryItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    staggerDelayMs: Int = 0,
+) {
     ShumCardContainer(
         modifier = Modifier.width(160.dp),
         imageCard = { interactionSource ->
@@ -238,6 +252,7 @@ private fun RecentlyAddedPoster(server: PlexServer, item: PlexLibraryItem, onCli
                     model = PlexImageUrl.of(server, item.thumb),
                     contentDescription = item.title,
                     modifier = Modifier.fillMaxSize(),
+                    staggerDelayMs = staggerDelayMs,
                 )
             }
         },
@@ -253,7 +268,13 @@ private fun RecentlyAddedPoster(server: PlexServer, item: PlexLibraryItem, onCli
 }
 
 @Composable
-private fun SuggestionPoster(server: PlexServer, item: PlexOnDeckItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun SuggestionPoster(
+    server: PlexServer,
+    item: PlexOnDeckItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    staggerDelayMs: Int = 0,
+) {
     ShumCardContainer(
         modifier = Modifier.width(160.dp),
         imageCard = { interactionSource ->
@@ -266,6 +287,7 @@ private fun SuggestionPoster(server: PlexServer, item: PlexOnDeckItem, onClick: 
                     model = PlexImageUrl.of(server, item.thumb),
                     contentDescription = item.title,
                     modifier = Modifier.fillMaxSize(),
+                    staggerDelayMs = staggerDelayMs,
                 )
             }
         },
@@ -294,6 +316,7 @@ private fun ContinueWatchingPoster(
     onResume: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
+    staggerDelayMs: Int = 0,
 ) {
     var confirmingRemove by remember(item.ratingKey) { mutableStateOf(false) }
     // The physical remote button that triggers the long-press is usually
@@ -399,6 +422,7 @@ private fun ContinueWatchingPoster(
                         model = PlexImageUrl.of(server, item.thumb),
                         contentDescription = item.title,
                         modifier = Modifier.fillMaxSize(),
+                        staggerDelayMs = staggerDelayMs,
                     )
                     Box(
                         modifier = Modifier
