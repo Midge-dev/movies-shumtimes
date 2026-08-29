@@ -141,23 +141,24 @@ fun MovieDetailScreen(
 
     // The LazyColumn's default focus-scroll only brings the focused button
     // itself into view, not the whole 420dp hero item it lives near the
-    // bottom of — scrolling back up from the sections below left the
-    // backdrop half cut off above the title. Snap all the way to item 0
-    // whenever focus re-enters the hero's action row instead.
+    // bottom of — scrolling back up from the sections below (or moving
+    // laterally between Play/Watch Together/Seasons) left the backdrop half
+    // cut off above the title. Snap all the way to item 0 every time any
+    // hero action button gains focus.
     //
-    // Driven through a LaunchedEffect rather than launching a coroutine
-    // straight from the onFocusChanged callback: calling
-    // scope.launch { listState.animateScrollToItem(0) } inline raced
-    // against the lazy list's own built-in "bring the newly-focused child
-    // into view" adjustment, and which one won depended on which button
-    // was focused (Play — tagged with an explicit FocusRequester used for
-    // the screen's initial focus — consistently lost the race; Watch
-    // Together didn't). A non-animated scrollToItem inside a LaunchedEffect
-    // runs after that layout pass instead of fighting it mid-frame.
+    // A token counter, not a boolean: this needs to re-fire on *every*
+    // button-to-button move within the row, not just the first entry into
+    // it — a boolean flipping false->true only fires once per visit to the
+    // row, so moving Play->Watch Together (already "true", no transition)
+    // never re-triggered the correction, and the lazy list's own built-in
+    // "bring the newly-focused child into view" adjustment won that case
+    // uncontested. Each button reports its *own* isFocused via
+    // onFocusChanged instead of the row's aggregate hasFocus, so every
+    // individual focus move bumps the token and re-runs the effect.
     val listState = rememberLazyListState()
-    var heroActionsFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(heroActionsFocused) {
-        if (heroActionsFocused) listState.scrollToItem(0)
+    var heroFocusToken by remember { mutableStateOf(0) }
+    LaunchedEffect(heroFocusToken) {
+        if (heroFocusToken > 0) listState.scrollToItem(0)
     }
 
     // Design spec 09c: 26-30dp gap between info sections.
@@ -176,7 +177,7 @@ fun MovieDetailScreen(
                 onPlay = { playTarget?.let(onPlay) },
                 onWatchTogether = { playTarget?.let(onWatchTogether) },
                 onSeasons = onSeasons,
-                onActionRowFocusChanged = { hasFocus -> heroActionsFocused = hasFocus },
+                onActionButtonFocused = { heroFocusToken++ },
             )
         }
         detail?.let { d ->
@@ -225,7 +226,7 @@ private fun MovieHero(
     onPlay: () -> Unit,
     onWatchTogether: () -> Unit,
     onSeasons: () -> Unit,
-    onActionRowFocusChanged: (hasFocus: Boolean) -> Unit,
+    onActionButtonFocused: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxWidth().height(HERO_HEIGHT_DP.dp)) {
         ShumArtwork(
@@ -253,25 +254,31 @@ private fun MovieHero(
             }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .padding(top = 24.dp)
-                    // onFocusChanged reports hasFocus=true whenever any
-                    // descendant (Play/Watch Together/Seasons) is focused,
-                    // even though this Row has no focus target of its own.
-                    .onFocusChanged { onActionRowFocusChanged(it.hasFocus) },
+                modifier = Modifier.padding(top = 24.dp),
             ) {
+                // Each button reports its own isFocused rather than relying
+                // on the row's aggregate — see heroFocusToken's comment
+                // above for why a per-button signal is what's needed here.
                 ShumButton(
                     onClick = onPlay,
-                    modifier = Modifier.focusRequester(playFocus),
+                    modifier = Modifier
+                        .focusRequester(playFocus)
+                        .onFocusChanged { if (it.isFocused) onActionButtonFocused() },
                 ) {
                     Text(playLabel)
                 }
-                ShumOutlinedButton(onClick = onWatchTogether) {
+                ShumOutlinedButton(
+                    onClick = onWatchTogether,
+                    modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
+                ) {
                     WatchTogetherIcon()
                     Text("Watch Together", modifier = Modifier.padding(start = 12.dp))
                 }
                 if (isShow) {
-                    ShumOutlinedButton(onClick = onSeasons) {
+                    ShumOutlinedButton(
+                        onClick = onSeasons,
+                        modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
+                    ) {
                         Text("Seasons")
                     }
                 }
