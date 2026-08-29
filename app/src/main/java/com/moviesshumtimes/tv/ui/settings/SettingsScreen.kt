@@ -50,6 +50,7 @@ import com.moviesshumtimes.tv.data.settings.AppSettings
 import com.moviesshumtimes.tv.data.settings.ChatOverlayCorner
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
+import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import com.moviesshumtimes.tv.ui.kit.FocusableSurface
@@ -123,7 +124,9 @@ fun SettingsScreen(
     }
 
     if (!loaded) {
-        Text("Loading settings…")
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            LoadingScreen("Loading settings…")
+        }
         return
     }
 
