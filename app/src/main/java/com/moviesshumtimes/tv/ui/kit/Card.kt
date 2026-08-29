@@ -44,6 +44,7 @@ private const val DEFAULT_FOCUS_SCALE = 1.06f
 fun ShumCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onLongClick: (() -> Unit)? = null,
     interactionSource: MutableInteractionSource? = null,
     focusScale: Float = DEFAULT_FOCUS_SCALE,
@@ -67,6 +68,7 @@ fun ShumCard(
     )
     FocusableSurface(
         onClick = onClick,
+        enabled = enabled,
         onLongClick = onLongClick,
         modifier = modifier
             .zIndex(if (isFocused) 1f else 0f)

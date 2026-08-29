@@ -1,5 +1,6 @@
 package com.moviesshumtimes.tv.ui.lobby
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -27,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -41,6 +44,7 @@ import com.moviesshumtimes.tv.sync.ChatMessage
 import com.moviesshumtimes.tv.sync.ConnectionState
 import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.RelayEvent
+import com.moviesshumtimes.tv.sync.relayHttpUrl
 import com.moviesshumtimes.tv.sync.toChatMessage
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
@@ -56,7 +60,6 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
-import java.net.URI
 import java.net.URLEncoder
 
 private const val PRESENCE_INTERVAL_MS = 3_000L
@@ -74,11 +77,19 @@ fun LobbyScreen(
     detail: PlexMovieDetail,
     localUsername: String,
     localAvatarUrl: String?,
+    // The room's host display name — for the host's own Lobby view this is
+    // just localUsername; for a guest (joined via the Home room directory)
+    // it comes from that room's RelayRoomSummary, since a guest otherwise
+    // has no way to know who's hosting.
+    hostName: String,
     relay: RelayClient,
     onStart: () -> Unit,
     onBack: () -> Unit,
 ) {
     val connectionState by relay.connectionState.collectAsState()
+    val mySeatIndex by relay.seatIndex.collectAsState()
+    val roomId by relay.roomId.collectAsState()
+    val isHost = mySeatIndex == 0
     var roster by remember { mutableStateOf<Map<String, RosterEntry>>(emptyMap()) }
     var showChatModal by remember { mutableStateOf(false) }
     val chatMessages = remember { MutableSharedFlow<ChatMessage>(extraBufferCapacity = 16) }
@@ -162,17 +173,40 @@ fun LobbyScreen(
                 modifier = Modifier.padding(top = 8.dp, bottom = 48.dp),
             )
 
+            // Design spec 09b: a fixed 8-seat room, not an open-ended list —
+            // seat 0 is always the host, the next 3 render individually
+            // (present or empty-dashed), and anyone beyond that collapses
+            // into a muted "+N" rather than letting the row grow unbounded.
+            // A guest's own presence isn't in `roster` (LobbyScreen only
+            // tracks *others*), so it's prepended here to occupy one of the
+            // non-host seats instead of being displayed as the host.
+            val others = remember(roster, isHost, localUsername, localAvatarUrl) {
+                buildList {
+                    if (!isHost) add(RosterEntry(localUsername, localAvatarUrl, Long.MAX_VALUE))
+                    addAll(roster.values.sortedBy { it.lastSeenMs })
+                }
+            }
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(64.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                LobbyPersonCard(username = localUsername, avatarUrl = localAvatarUrl, present = true)
-                if (roster.isEmpty()) {
-                    LobbyPersonCard(username = "Waiting…", avatarUrl = null, present = false)
-                } else {
-                    for ((peerId, entry) in roster) {
-                        LobbyPersonCard(username = entry.username, avatarUrl = entry.avatarUrl, present = true)
+                LobbyPersonCard(
+                    name = hostName,
+                    avatarUrl = if (isHost) localAvatarUrl else null,
+                    subtitle = "host",
+                )
+                repeat(3) { index ->
+                    val entry = others.getOrNull(index)
+                    if (entry != null) {
+                        LobbyPersonCard(name = entry.username, avatarUrl = entry.avatarUrl)
+                    } else {
+                        EmptySeat()
                     }
+                }
+                val overflow = (others.size - 3).coerceAtLeast(0)
+                if (overflow > 0) {
+                    Text("+$overflow", color = AppWhite.copy(alpha = 0.35f), style = ShumTypography.headlineMedium)
                 }
             }
 
@@ -199,7 +233,7 @@ fun LobbyScreen(
         )
 
         if (showChatModal) {
-            ChatQrModal(relayUrl = relay.relayUrl, defaultName = localUsername, onDismiss = { showChatModal = false })
+            ChatQrModal(relayUrl = relay.relayUrl, roomId = roomId, defaultName = localUsername, onDismiss = { showChatModal = false })
         }
     }
 }
@@ -213,16 +247,18 @@ fun LobbyScreen(
 // fully visible regardless of what else is on the lobby screen, and it
 // can afford a much bigger, more scannable QR code too.
 @Composable
-private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> Unit) {
+private fun ChatQrModal(relayUrl: String, roomId: String?, defaultName: String, onDismiss: () -> Unit) {
     // relayUrl is guaranteed non-placeholder here: LobbyScreen only exists
     // when ensureRelayClient() already built a real connection from it (see
-    // MainActivity's onPlay/onSelect handlers), so there's nothing left to
-    // validate — just the ws(s):// -> http(s):// scheme swap can fail if
-    // the URL is malformed in some other way (missing host, etc).
+    // MainActivity's onPlay/onSelect handlers) — roomId is null only for the
+    // brief window before "welcome" lands, which the null-message branch
+    // below covers rather than treating as a hard error.
     // defaultName rides along as a query param so scanning your own TV's
     // code pre-fills your real Plex username on the chat page instead of a
     // random "Phone 123" — still editable there, and remembered after.
-    val chatUrl = remember(relayUrl, defaultName) { relayUrlToChatUrl(relayUrl, defaultName) }
+    val chatUrl = remember(relayUrl, roomId, defaultName) {
+        roomId?.let { relayUrlToChatUrl(relayUrl, it, defaultName) }
+    }
     val closeFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { closeFocusRequester.requestFocus() }
 
@@ -243,7 +279,7 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
 
             if (chatUrl == null) {
                 Text(
-                    "Chat needs a wss:// or ws:// relay URL — check Settings.",
+                    "Still connecting to the room — try again in a moment.",
                     color = AppWhite,
                     modifier = Modifier.padding(top = 20.dp),
                 )
@@ -275,48 +311,61 @@ private fun ChatQrModal(relayUrl: String, defaultName: String, onDismiss: () -> 
 }
 
 // Derives the relay's phone-facing chat page URL from its WebSocket URL —
-// same host/port/token, http(s) scheme, /chat path, plus a name param so
-// the chat page can default to the scanning device's real username instead
-// of a random placeholder. No app install needed on the phone side,
-// matching the existing "Pair from phone" QR flow.
-private fun relayUrlToChatUrl(relayUrl: String, defaultName: String): String? {
-    val uri = runCatching { URI(relayUrl) }.getOrNull() ?: return null
-    val scheme = when (uri.scheme) {
-        "wss" -> "https"
-        "ws" -> "http"
-        else -> return null
-    }
-    val host = uri.host ?: return null
-    val portPart = if (uri.port != -1) ":${uri.port}" else ""
+// same host/port/token, http(s) scheme, /chat path, plus the roomId (so the
+// phone's chat joins this specific room's history, not some other one) and
+// a name param so the chat page can default to the scanning device's real
+// username instead of a random placeholder. No app install needed on the
+// phone side, matching the existing "Pair from phone" QR flow. Uses the
+// shared (KMP-portable) relayHttpUrl parser rather than java.net.URI, kept
+// here only for URLEncoder — fine to stay JVM-only since this file is
+// Android-only, unlike the shared sync package.
+private fun relayUrlToChatUrl(relayUrl: String, roomId: String, defaultName: String): String? {
+    val parsed = relayHttpUrl(relayUrl) ?: return null
     val params = buildList {
-        uri.rawQuery?.let { add(it) }
+        parsed.query?.let { add(it) }
+        add("room=$roomId")
         if (defaultName.isNotBlank()) add("name=${URLEncoder.encode(defaultName, "UTF-8")}")
     }
-    val query = if (params.isNotEmpty()) "?${params.joinToString("&")}" else ""
-    return "$scheme://$host$portPart/chat$query"
+    return "${parsed.base}/chat?${params.joinToString("&")}"
 }
 
 @Composable
-private fun LobbyPersonCard(username: String, avatarUrl: String?, present: Boolean) {
+private fun LobbyPersonCard(name: String, avatarUrl: String?, subtitle: String? = null) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
                 .size(96.dp)
                 .clip(CircleShape)
-                .background(if (present) NeonPurple.copy(alpha = 0.35f) else AppWhite.copy(alpha = 0.1f)),
+                .background(NeonPurple.copy(alpha = 0.35f)),
             contentAlignment = Alignment.Center,
         ) {
             if (avatarUrl != null) {
                 AsyncImage(
                     model = avatarUrl,
-                    contentDescription = username,
+                    contentDescription = name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                 )
             } else {
-                Text(username.take(1).uppercase(), style = ShumTypography.headlineMedium, color = AppWhite)
+                Text(name.take(1).uppercase(), style = ShumTypography.headlineMedium, color = AppWhite)
             }
         }
-        Text(username, color = AppWhite, modifier = Modifier.padding(top = 12.dp))
+        Text(name, color = AppWhite, modifier = Modifier.padding(top = 12.dp))
+        if (subtitle != null) {
+            Text(subtitle, color = AppWhite.copy(alpha = 0.6f))
+        }
+    }
+}
+
+// Design spec 09b: capacity only, not pressable — there's nobody to invite
+// into it, just a visual placeholder showing the room has room to grow.
+@Composable
+private fun EmptySeat() {
+    Canvas(modifier = Modifier.size(96.dp)) {
+        drawCircle(color = AppWhite.copy(alpha = 0.06f))
+        drawCircle(
+            color = AppWhite.copy(alpha = 0.18f),
+            style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))),
+        )
     }
 }

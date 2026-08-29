@@ -28,6 +28,15 @@ import kotlinx.serialization.json.put
 private const val INITIAL_BACKOFF_MS = 1_000L
 private const val MAX_BACKOFF_MS = 30_000L
 
+// What a connection is trying to do — create a fresh room (host) or join an
+// existing one by id (guest, from the Home screen's room directory). The
+// relay's old single-tenant "hello" envelope is gone; every device
+// connection now states its room intent up front.
+sealed interface RoomIntent {
+    data class Create(val title: String, val thumb: String?, val ratingKey: String?, val hostName: String) : RoomIntent
+    data class Join(val roomId: String) : RoomIntent
+}
+
 // Thin transport client for the watch-together relay (relay/server.js):
 // speaks the hello/welcome/event/full envelope protocol, carries an
 // application-level RelayEvent inside every "event" message, and persists
@@ -58,7 +67,15 @@ class RelayClient(
     private var reconnectJob: Job? = null
     private var backoffMs = INITIAL_BACKOFF_MS
     private var manuallyDisconnected = false
-    private var lastRejectionWasFull = false
+    // ROOM_FULL and ROOM_NOT_FOUND are both terminal rejections, not
+    // transient failures — a reconnect won't fix "the room is full" or "the
+    // room ended," so scheduleReconnect surfaces whichever one just
+    // happened instead of always falling back to RECONNECTING.
+    private var lastRejection: ConnectionState? = null
+    // What the *next* (re)connect attempt should do — set by connect(),
+    // reused verbatim across reconnects so a dropped connection rejoins the
+    // same room instead of re-running whatever intent was passed in first.
+    private var intent: RoomIntent? = null
 
     private val _events = MutableSharedFlow<RelayEvent>(extraBufferCapacity = 32)
     val events: SharedFlow<RelayEvent> = _events
@@ -70,38 +87,57 @@ class RelayClient(
     private val _seatIndex = MutableStateFlow<Int?>(null)
     val seatIndex: StateFlow<Int?> = _seatIndex
 
+    // Populated from "welcome" — null until connected. Needed by the Lobby's
+    // chat QR (to scope the phone's chat join to this room) and by Home to
+    // mark this room as "yours" (Rejoin / "You're in") in the directory.
+    private val _roomId = MutableStateFlow<String?>(null)
+    val roomId: StateFlow<String?> = _roomId
+
     val myPeerId: String get() = identity.peerId
 
-    fun connect() {
+    fun connect(intent: RoomIntent) {
+        this.intent = intent
         manuallyDisconnected = false
         backoffMs = INITIAL_BACKOFF_MS
         attemptConnect()
     }
 
     private fun attemptConnect() {
-        lastRejectionWasFull = false
+        val currentIntent = intent ?: return
+        lastRejection = null
         _connectionState.value = ConnectionState.CONNECTING
         // One coroutine owns the whole connection lifecycle: opening the
-        // session, sending "hello", and reading frames until the session
-        // ends (gracefully or not — both cases fall through to the same
-        // finally block, mirroring the old onClosed/onFailure callbacks
-        // both unconditionally calling scheduleReconnect()). Cancelling
-        // this job (see disconnect()) is itself what tears the session
-        // down, via structured concurrency, instead of a separate close
-        // call racing against it.
+        // session, sending the create/join request, and reading frames
+        // until the session ends (gracefully or not — both cases fall
+        // through to the same finally block, mirroring the old
+        // onClosed/onFailure callbacks both unconditionally calling
+        // scheduleReconnect()). Cancelling this job (see disconnect()) is
+        // itself what tears the session down, via structured concurrency,
+        // instead of a separate close call racing against it.
         sessionJob = scope.launch {
             try {
                 val newSession = client.webSocketSession(relayUrl)
                 session = newSession
                 backoffMs = INITIAL_BACKOFF_MS
 
-                val hello = buildJsonObject {
-                    put("type", "hello")
-                    put("role", "device")
+                val request = buildJsonObject {
+                    when (currentIntent) {
+                        is RoomIntent.Create -> {
+                            put("type", "createRoom")
+                            put("title", currentIntent.title)
+                            currentIntent.thumb?.let { put("thumb", it) }
+                            currentIntent.ratingKey?.let { put("ratingKey", it) }
+                            put("hostName", currentIntent.hostName)
+                        }
+                        is RoomIntent.Join -> {
+                            put("type", "joinRoom")
+                            put("roomId", currentIntent.roomId)
+                        }
+                    }
                     put("peerId", identity.peerId)
                     identity.reconnectToken?.let { put("reconnectToken", it) }
                 }
-                newSession.send(Frame.Text(hello.toString()))
+                newSession.send(Frame.Text(request.toString()))
 
                 for (frame in newSession.incoming) {
                     if (frame is Frame.Text) handleFrame(frame.readText())
@@ -126,11 +162,16 @@ class RelayClient(
                     onIdentityUpdated(identity)
                 }
                 _seatIndex.value = root["seatIndex"]?.jsonPrimitive?.intOrNull
+                root["roomId"]?.jsonPrimitive?.contentOrNull?.let { _roomId.value = it }
                 _connectionState.value = ConnectionState.CONNECTED
             }
             "full" -> {
-                lastRejectionWasFull = true
+                lastRejection = ConnectionState.ROOM_FULL
                 _connectionState.value = ConnectionState.ROOM_FULL
+            }
+            "notFound" -> {
+                lastRejection = ConnectionState.ROOM_NOT_FOUND
+                _connectionState.value = ConnectionState.ROOM_NOT_FOUND
             }
             "event" -> {
                 val payload = root["payload"] ?: return
@@ -142,7 +183,13 @@ class RelayClient(
 
     private fun scheduleReconnect() {
         if (manuallyDisconnected) return
-        _connectionState.value = if (lastRejectionWasFull) ConnectionState.ROOM_FULL else ConnectionState.RECONNECTING
+        // A room that's full or gone won't fix itself on a timer the way a
+        // dropped network connection might — still retry (the host could
+        // free a seat, or this could be a stale rejection from before a
+        // reconnect), but report the specific rejection meanwhile rather
+        // than a generic RECONNECTING that reads as "still trying to
+        // connect" when the real answer is already known.
+        _connectionState.value = lastRejection ?: ConnectionState.RECONNECTING
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             delay(backoffMs)
@@ -165,7 +212,9 @@ class RelayClient(
         reconnectJob?.cancel()
         sessionJob?.cancel()
         session = null
+        intent = null
         _seatIndex.value = null
+        _roomId.value = null
         _connectionState.value = ConnectionState.DISCONNECTED
     }
 }

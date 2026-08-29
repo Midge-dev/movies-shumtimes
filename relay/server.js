@@ -5,18 +5,19 @@ const WebSocket = require('ws');
 const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.RELAY_TOKEN || null;
 
-// This relay is single-tenant — one deployment serves exactly one pair of
-// people (per the pairing/QR flow in Settings), never a pool of strangers.
-// That's why there's no multi-room/session-id model here: "the room" is
-// just this process. What still matters, and what this file exists to fix,
-// is *identity* across a reconnect — a device that drops (app killed by
-// Android's low-memory reaper, backgrounded through Netflix, network blip)
-// needs to get its own seat back, not race a stale ghost for one of only
-// two slots.
+// Multi-tenant: one deployment serves a whole friend group, hosting many
+// independent rooms at once, each identified by a roomId. Pressing "Watch
+// Together" mints a fresh room (host seated at index 0); joining requires
+// that specific roomId (learned from the Home screen's /rooms directory,
+// not shared out-of-band the way the old single-tenant pairing flow worked).
+// A room lives only as long as its host is connected — see
+// releaseExpiredReservations below, which now deletes the whole room once
+// seat 0's reservation lapses, not just that one seat.
 const MAX_DEVICE_SEATS = Number(process.env.MAX_DEVICE_SEATS || 8);
 const MAX_CHAT_PEERS = 4;
 const RECONNECT_GRACE_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
+const CHAT_HISTORY_LIMIT = 100;
 // Device seats reclaim themselves via reconnect tokens, but a chat peer
 // (a phone browser tab) has no such lifecycle — someone can leave the page
 // open long after the movie's over, holding a slot indefinitely. Kicking
@@ -24,92 +25,179 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 // idle-detection.
 const CHAT_MAX_SESSION_MS = 30 * 60_000;
 
-// device seats: up to MAX_DEVICE_SEATS, index 0 is host, 1..N-1 are guests —
-// assigned in first-ever-connect order and then stable across reconnects
-// because a returning device presents the reconnectToken it was minted the
-// first time, reclaiming its own seat rather than taking whichever is free.
+// rooms: roomId -> RoomState. seats: up to MAX_DEVICE_SEATS, index 0 is
+// always the host (assigned at createRoom, never anyone else), 1..N-1 are
+// guests — assigned in join order and then stable across reconnects because
+// a returning device presents the reconnectToken it was minted the first
+// time, reclaiming its own seat rather than taking whichever is free.
 // seat.ws is null while the seat is reserved-but-disconnected.
-const seats = new Array(MAX_DEVICE_SEATS).fill(null);
-const chatPeers = new Set();
+const rooms = new Map();
 
 function mintToken() {
   return crypto.randomBytes(24).toString('base64url');
 }
 
-function findSeatByPeerId(peerId) {
-  return seats.findIndex((seat) => seat && seat.peerId === peerId);
+function mintRoomId() {
+  return crypto.randomBytes(6).toString('base64url');
+}
+
+function createRoomState({ title, thumb, ratingKey, hostName }) {
+  return {
+    roomId: mintRoomId(),
+    title: String(title || 'Untitled'),
+    thumb: typeof thumb === 'string' ? thumb : null,
+    ratingKey: typeof ratingKey === 'string' ? ratingKey : null,
+    hostName: typeof hostName === 'string' && hostName ? hostName : 'Host',
+    seats: new Array(MAX_DEVICE_SEATS).fill(null),
+    chatPeers: new Set(),
+    chatHistory: [],
+    createdAt: Date.now(),
+  };
+}
+
+// Shared tail of both create and join: claim the first free seat for a
+// brand-new peerId. Always succeeds for createRoom (a fresh room's seats
+// are all empty); join uses the same claim path once it's confirmed
+// peerId isn't already reconnecting into an existing seat (see
+// reclaimSeat below).
+function assignSeat(ws, room, peerId) {
+  const freeIndex = room.seats.findIndex((seat) => seat === null);
+  if (freeIndex === -1) return null;
+  const reconnectToken = mintToken();
+  room.seats[freeIndex] = { peerId, reconnectToken, ws, reservedUntil: null };
+  ws.roomId = room.roomId;
+  ws.deviceSeatIndex = freeIndex;
+  return { seatIndex: freeIndex, reconnectToken };
+}
+
+// A device reconnecting to a seat it already holds in this room — same
+// peerId, and the token it presents has to match what was minted for that
+// seat, so a guessed/reused peerId can't hijack someone else's seat.
+function reclaimSeat(ws, room, existingIndex, presentedToken) {
+  const seat = room.seats[existingIndex];
+  if (seat.reconnectToken !== presentedToken) return null;
+  if (seat.ws) {
+    // Same device reconnecting while its old socket is still technically
+    // open (e.g. a fast app relaunch before the heartbeat noticed) — the
+    // new connection wins.
+    try { seat.ws.terminate(); } catch { /* already gone */ }
+  }
+  seat.ws = ws;
+  seat.reservedUntil = null;
+  ws.roomId = room.roomId;
+  ws.deviceSeatIndex = existingIndex;
+  return { seatIndex: existingIndex, reconnectToken: seat.reconnectToken };
 }
 
 function releaseExpiredReservations() {
   const now = Date.now();
-  for (let i = 0; i < seats.length; i++) {
-    const seat = seats[i];
-    if (seat && seat.ws === null && seat.reservedUntil !== null && now >= seat.reservedUntil) {
-      seats[i] = null;
+  for (const [roomId, room] of rooms) {
+    for (let i = 0; i < room.seats.length; i++) {
+      const seat = room.seats[i];
+      if (seat && seat.ws === null && seat.reservedUntil !== null && now >= seat.reservedUntil) {
+        room.seats[i] = null;
+      }
+    }
+    // Seat 0 is always the host by construction — once its reservation has
+    // lapsed with nobody reclaiming it, the room itself is over. This is
+    // the entire "room disappears when the host leaves" mechanic; no
+    // separate expiry timer is needed on top of it.
+    if (!room.seats[0]) {
+      rooms.delete(roomId);
     }
   }
 }
 
-function handleDeviceHello(ws, msg) {
-  releaseExpiredReservations();
+function handleCreateRoom(ws, msg) {
   const peerId = typeof msg.peerId === 'string' && msg.peerId ? msg.peerId : crypto.randomUUID();
+  const room = createRoomState({
+    title: msg.title,
+    thumb: msg.thumb,
+    ratingKey: msg.ratingKey,
+    hostName: msg.hostName,
+  });
+  rooms.set(room.roomId, room);
+  const result = assignSeat(ws, room, peerId); // always succeeds: fresh room, all seats empty
+  ws.send(JSON.stringify({
+    type: 'welcome',
+    roomId: room.roomId,
+    peerId,
+    reconnectToken: result.reconnectToken,
+    seatIndex: result.seatIndex,
+  }));
+}
 
-  const existingIndex = findSeatByPeerId(peerId);
-  if (existingIndex !== -1) {
-    const seat = seats[existingIndex];
-    if (seat.reconnectToken !== msg.reconnectToken) {
-      // Same peerId but the wrong token — don't hand back someone else's
-      // seat just because they guessed/reused an id.
-      ws.send(JSON.stringify({ type: 'full' }));
-      ws.close();
-      return;
-    }
-    if (seat.ws) {
-      // Same device reconnecting while its old socket is still technically
-      // open (e.g. a fast app relaunch before the heartbeat noticed) — the
-      // new connection wins.
-      try { seat.ws.terminate(); } catch { /* already gone */ }
-    }
-    seat.ws = ws;
-    seat.reservedUntil = null;
-    ws.deviceSeatIndex = existingIndex;
-    ws.send(JSON.stringify({ type: 'welcome', peerId, reconnectToken: seat.reconnectToken, seatIndex: existingIndex }));
-    return;
-  }
-
-  const freeIndex = seats.findIndex((seat) => seat === null);
-  if (freeIndex === -1) {
-    ws.send(JSON.stringify({ type: 'full' }));
+function handleJoinRoom(ws, msg) {
+  releaseExpiredReservations();
+  const room = rooms.get(msg.roomId);
+  if (!room) {
+    // The room ended (host left) between the client listing it via /rooms
+    // and pressing Join — distinct from `full` so the client can show a
+    // more accurate "that room just ended" message.
+    ws.send(JSON.stringify({ type: 'notFound' }));
     ws.close();
     return;
   }
 
-  const reconnectToken = mintToken();
-  seats[freeIndex] = { peerId, reconnectToken, ws, reservedUntil: null };
-  ws.deviceSeatIndex = freeIndex;
-  ws.send(JSON.stringify({ type: 'welcome', peerId, reconnectToken, seatIndex: freeIndex }));
+  const peerId = typeof msg.peerId === 'string' && msg.peerId ? msg.peerId : crypto.randomUUID();
+  const existingIndex = room.seats.findIndex((seat) => seat && seat.peerId === peerId);
+  const result = existingIndex !== -1
+    ? reclaimSeat(ws, room, existingIndex, msg.reconnectToken)
+    : assignSeat(ws, room, peerId);
+
+  if (!result) {
+    ws.send(JSON.stringify({ type: 'full' }));
+    ws.close();
+    return;
+  }
+  ws.send(JSON.stringify({
+    type: 'welcome',
+    roomId: room.roomId,
+    peerId,
+    reconnectToken: result.reconnectToken,
+    seatIndex: result.seatIndex,
+  }));
 }
 
-function handleChatHello(ws) {
-  if (chatPeers.size >= MAX_CHAT_PEERS) {
+function handleChatHello(ws, msg) {
+  const room = rooms.get(msg.roomId);
+  if (!room) {
+    ws.send(JSON.stringify({ type: 'notFound' }));
+    ws.close();
+    return;
+  }
+  if (room.chatPeers.size >= MAX_CHAT_PEERS) {
     ws.send(JSON.stringify({ type: 'full' }));
     ws.close();
     return;
   }
   ws.isChatPeer = true;
+  ws.roomId = room.roomId;
   ws.chatConnectedAt = Date.now();
-  chatPeers.add(ws);
+  room.chatPeers.add(ws);
   ws.send(JSON.stringify({ type: 'welcome', peerId: crypto.randomUUID(), seatIndex: null }));
+  // Replays this room's own history (and only this room's) to a freshly
+  // (re)connected phone — covers both "scanned a different room's QR" (gets
+  // that room's history, not some other movie's) and "accidentally closed
+  // the browser tab" (reconnecting to the same room replays what it missed,
+  // for as long as the room itself is still alive).
+  ws.send(JSON.stringify({ type: 'chatHistory', messages: room.chatHistory }));
 }
 
 function broadcastEvent(sender, payload) {
+  const room = rooms.get(sender.roomId);
+  if (!room) return;
+  if (payload && payload.kind === 'chat') {
+    room.chatHistory.push(payload);
+    if (room.chatHistory.length > CHAT_HISTORY_LIMIT) room.chatHistory.shift();
+  }
   const data = JSON.stringify({ type: 'event', payload });
-  for (const seat of seats) {
+  for (const seat of room.seats) {
     if (seat && seat.ws && seat.ws !== sender && seat.ws.readyState === WebSocket.OPEN) {
       seat.ws.send(data);
     }
   }
-  for (const peer of chatPeers) {
+  for (const peer of room.chatPeers) {
     if (peer !== sender && peer.readyState === WebSocket.OPEN) {
       peer.send(data);
     }
@@ -117,12 +205,14 @@ function broadcastEvent(sender, payload) {
 }
 
 function releaseConnection(ws) {
+  const room = rooms.get(ws.roomId);
+  if (!room) return;
   if (ws.isChatPeer) {
-    chatPeers.delete(ws);
+    room.chatPeers.delete(ws);
     return;
   }
   if (typeof ws.deviceSeatIndex === 'number') {
-    const seat = seats[ws.deviceSeatIndex];
+    const seat = room.seats[ws.deviceSeatIndex];
     if (seat && seat.ws === ws) {
       seat.ws = null;
       seat.reservedUntil = Date.now() + RECONNECT_GRACE_MS;
@@ -133,12 +223,33 @@ function releaseConnection(ws) {
 // A plain WebSocket.Server with no request handler leaves regular HTTP GETs
 // (e.g. Render's health check) hanging forever, so the WS server is attached
 // to an http.Server that answers those directly. It also now serves the
-// phone-facing chat page (see CHAT_PAGE_HTML below).
+// phone-facing chat page (see CHAT_PAGE_HTML below) and the room directory
+// the Home screen polls.
 const server = http.createServer((req, res) => {
   const { pathname } = new URL(req.url, `http://${req.headers.host}`);
   if (pathname === '/chat') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(CHAT_PAGE_HTML);
+    return;
+  }
+  if (pathname === '/rooms') {
+    releaseExpiredReservations();
+    const list = [];
+    for (const room of rooms.values()) {
+      const occupants = room.seats.filter(Boolean).length;
+      if (occupants === 0) continue; // shouldn't happen (seat 0 is the host) — guard anyway
+      list.push({
+        roomId: room.roomId,
+        title: room.title,
+        thumb: room.thumb,
+        ratingKey: room.ratingKey,
+        hostName: room.hostName,
+        occupants,
+        maxSeats: MAX_DEVICE_SEATS,
+      });
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(list));
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -181,12 +292,16 @@ wss.on('connection', (ws) => {
       return; // Malformed — ignore rather than tear down the connection.
     }
     switch (msg.type) {
+      case 'createRoom':
+        handleCreateRoom(ws, msg);
+        break;
+      case 'joinRoom':
+        handleJoinRoom(ws, msg);
+        break;
       case 'hello':
-        if (msg.role === 'chat') {
-          handleChatHello(ws);
-        } else {
-          handleDeviceHello(ws, msg);
-        }
+        // Only chat (phone) peers still use the old hello envelope — device
+        // seating now always goes through createRoom/joinRoom above.
+        if (msg.role === 'chat') handleChatHello(ws, msg);
         break;
       case 'event':
         broadcastEvent(ws, msg.payload);
@@ -202,8 +317,12 @@ wss.on('connection', (ws) => {
 // handshake either, so this forces the TCP connection down immediately and
 // frees its seat (with the same reconnect grace as a clean disconnect)
 // right away instead of waiting on a TCP-level timeout that can take many
-// minutes or never fire at all through a hosting provider's proxy.
+// minutes or never fire at all through a hosting provider's proxy. Also
+// sweeps expired reservations each tick so a room whose host never
+// reconnects gets deleted even if no create/join traffic arrives to trigger
+// the lazy sweep in handleJoinRoom/GET /rooms.
 const heartbeatInterval = setInterval(() => {
+  releaseExpiredReservations();
   const now = Date.now();
   for (const ws of wss.clients) {
     if (ws.isChatPeer && now - ws.chatConnectedAt > CHAT_MAX_SESSION_MS) {
@@ -229,9 +348,10 @@ wss.on('close', () => clearInterval(heartbeatInterval));
 
 // Minimal, dependency-free chat client — no app install needed, matches the
 // existing "Pair from phone" QR flow's philosophy of a plain served page.
-// Reads its relay token straight from the URL the QR code encodes
-// (?token=...) and reconnects with backoff since a phone's browser tab can
-// lose its socket (screen lock, backgrounding) far more often than the TV.
+// Reads its relay token and room id straight from the URL the QR code
+// encodes (?token=...&room=...) and reconnects with backoff since a phone's
+// browser tab can lose its socket (screen lock, backgrounding) far more
+// often than the TV.
 const CHAT_PAGE_HTML = `<!doctype html>
 <html><head>
 <meta charset="utf-8">
@@ -299,6 +419,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
     const form = document.getElementById('form');
     const textInput = document.getElementById('text');
     const nameField = document.getElementById('nameField');
+    const roomId = new URLSearchParams(location.search).get('room');
 
     // Priority: a name you've already edited here (localStorage) beats the
     // TV's QR-embedded default (?name=...) on return visits, which beats a
@@ -316,34 +437,15 @@ const CHAT_PAGE_HTML = `<!doctype html>
       localStorage.setItem('shumtimes_chat_name', username);
     });
 
-    // Chat history has no server-side persistence (this relay just
-    // broadcasts each message once, see server.js's broadcastEvent — there's
-    // no room/session store to replay from), so a page refresh used to wipe
-    // the log entirely. Mirroring it into localStorage fixes that without a
-    // backend: purely client-side, scoped to this phone/browser only, capped
-    // so it can't grow unbounded. It won't show history from a different
-    // phone or from before this browser's first visit — a real fix for that
-    // would need the relay to store and replay messages server-side.
-    const STORAGE_KEY = 'shumtimes_chat_history';
-    const MAX_STORED_MESSAGES = 200;
-
-    function loadStoredMessages() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
-    }
-
-    const messages = loadStoredMessages();
-
-    function saveMessages() {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)));
-      } catch { /* storage full/unavailable — history just won't persist */ }
-    }
-
+    // Chat history now lives on the relay, scoped to this one room (see
+    // server.js's chatHistory/broadcastEvent) — the room sends its buffer
+    // back right after 'hello', so there's nothing for this page to persist
+    // itself any more. Previously this mirrored history into localStorage,
+    // which had no room boundary at all and is exactly why a phone used to
+    // see every past movie's messages piled together; the server replacing
+    // that also means a browser-close mid-room now recovers correctly
+    // (the room's buffer outlives the tab, for as long as the room itself
+    // is alive), which localStorage never actually guaranteed either.
     function renderMessage(who, text, isMe) {
       const line = document.createElement('div');
       line.className = 'msg ' + (isMe ? 'mine' : 'theirs');
@@ -361,14 +463,6 @@ const CHAT_PAGE_HTML = `<!doctype html>
       logEl.scrollTop = logEl.scrollHeight;
     }
 
-    function appendLine(who, text, isMe) {
-      renderMessage(who, text, isMe);
-      messages.push({ who, text, isMe });
-      saveMessages();
-    }
-
-    for (const m of messages) renderMessage(m.who, m.text, m.isMe);
-
     let ws;
     let backoffMs = 1000;
     let kicked = false;
@@ -378,7 +472,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
       ws.onopen = () => {
         statusEl.textContent = 'Connected';
         backoffMs = 1000;
-        ws.send(JSON.stringify({ type: 'hello', role: 'chat' }));
+        ws.send(JSON.stringify({ type: 'hello', role: 'chat', roomId }));
       };
       ws.onclose = () => {
         if (kicked) return;
@@ -394,8 +488,19 @@ const CHAT_PAGE_HTML = `<!doctype html>
           statusEl.textContent = 'Session ended after 30 minutes — reopen the chat from the TV to rejoin.';
           return;
         }
+        if (msg.type === 'notFound') {
+          statusEl.textContent = 'This room has ended.';
+          return;
+        }
+        if (msg.type === 'chatHistory') {
+          logEl.innerHTML = '';
+          for (const m of msg.messages || []) {
+            renderMessage(m.username || 'them', m.text || '', (m.username || '') === username);
+          }
+          return;
+        }
         if (msg.type === 'event' && msg.payload && msg.payload.kind === 'chat') {
-          appendLine(msg.payload.username || 'them', msg.payload.text || '', false);
+          renderMessage(msg.payload.username || 'them', msg.payload.text || '', false);
         }
       };
     }
@@ -406,7 +511,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
       const text = textInput.value.trim();
       if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ type: 'event', payload: { kind: 'chat', username, text } }));
-      appendLine(username, text, true);
+      renderMessage(username, text, true);
       textInput.value = '';
     });
   </script>

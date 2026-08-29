@@ -4,7 +4,22 @@ import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlinx.serialization.Serializable
 
-enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING, ROOM_FULL }
+enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING, ROOM_FULL, ROOM_NOT_FOUND }
+
+// One row of the relay's GET /rooms directory — a room currently live on
+// the shared relay, with just enough to render a Home-screen card and join
+// it. Sourced entirely from the relay's own in-memory state (see
+// relay/server.js); no Plex API call and no persistence involved.
+@Serializable
+data class RelayRoomSummary(
+    val roomId: String,
+    val title: String,
+    val thumb: String? = null,
+    val ratingKey: String? = null,
+    val hostName: String,
+    val occupants: Int,
+    val maxSeats: Int,
+)
 
 // The application-level payload carried inside every relay "event" message
 // (see RelayClient's envelope types). One flat class for every kind, same

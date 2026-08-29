@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -44,7 +45,11 @@ import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.data.settings.plexIdentityStore
 import com.moviesshumtimes.tv.data.settings.relayIdentityStore
 import com.moviesshumtimes.tv.data.settings.tokenStore
+import com.moviesshumtimes.tv.sync.ConnectionState
 import com.moviesshumtimes.tv.sync.RelayClient
+import com.moviesshumtimes.tv.sync.RelayDirectoryApi
+import com.moviesshumtimes.tv.sync.RelayRoomSummary
+import com.moviesshumtimes.tv.sync.RoomIntent
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
@@ -63,7 +68,9 @@ import coil3.request.ImageRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 
 private const val SECTION_TYPE_SHOW = "show"
@@ -196,6 +203,11 @@ private sealed interface AppState {
         val detail: PlexMovieDetail,
         val returnState: AppState,
         val relay: RelayClient,
+        // The room's host display name — this device's own username when
+        // hosting, or the joined room's RelayRoomSummary.hostName when
+        // joining someone else's (a guest otherwise has no way to know who
+        // opened the room). See LobbyScreen's matching doc comment.
+        val hostName: String,
     ) : AppState
     data class Player(
         val server: PlexServer,
@@ -221,8 +233,11 @@ private fun AppRoot() {
     // entering the Lobby/Player flow, and released explicitly wherever that
     // flow is exited back to browsing (see onBack/onExit below) — reconnect
     // tokens make reconnecting cheap and safe now, so there's no reason to
-    // hold the socket open for the whole browsing session too.
-    suspend fun ensureRelayClient(): RelayClient? {
+    // hold the socket open for the whole browsing session too. The relay is
+    // now multi-tenant (design spec 09b): every call states whether it's
+    // hosting a fresh room or joining a specific one by id, since there's
+    // no longer a single implicit room the connection always lands in.
+    suspend fun ensureRelayClient(intent: RoomIntent): RelayClient? {
         relayClient?.let { return it }
         val relayUrl = context.appSettingsStore.observe().first().relayUrl?.takeIf { it.isNotBlank() } ?: return null
         val identity = relayIdentity ?: context.relayIdentityStore.load().also { relayIdentity = it }
@@ -235,7 +250,7 @@ private fun AppRoot() {
                 updated.reconnectToken?.let { context.relayIdentityStore.saveReconnectToken(it) }
             },
         )
-        newClient.connect()
+        newClient.connect(intent)
         relayClient = newClient
         return newClient
     }
@@ -243,6 +258,26 @@ private fun AppRoot() {
     fun releaseRelayClient() {
         relayClient?.disconnect()
         relayClient = null
+    }
+
+    // Home's Watch Together row (design spec 09b) — polled rather than
+    // pushed over a live socket, since browsing Home shouldn't require
+    // holding a WebSocket open just to see what's live. Runs for the whole
+    // app lifetime as one loop (cheap — a no-op check most of the time)
+    // rather than restarting on every Home-state rebuild, matching the
+    // always-on polling idiom already used elsewhere in this file.
+    var liveRooms by remember { mutableStateOf<List<RelayRoomSummary>>(emptyList()) }
+    val relayDirectoryApi = remember { RelayDirectoryApi() }
+    LaunchedEffect(Unit) {
+        while (true) {
+            liveRooms = if (state is AppState.Home) {
+                val relayUrl = context.appSettingsStore.observe().first().relayUrl?.takeIf { it.isNotBlank() }
+                relayUrl?.let { relayDirectoryApi.listRooms(it) } ?: emptyList()
+            } else {
+                emptyList()
+            }
+            delay(5_000)
+        }
     }
 
     // Warms Coil's cache for a section's first screenful of posters before
@@ -413,16 +448,57 @@ private fun AppRoot() {
                 onDeck = current.onDeck,
                 recentlyAdded = current.recentlyAdded,
                 suggestions = current.suggestions,
+                liveRooms = liveRooms,
+                myRoomId = relayClient?.roomId?.collectAsState()?.value,
+                onSelectRoom = { room ->
+                    scope.launch {
+                        val ratingKey = room.ratingKey
+                        val fetched = if (ratingKey == null) {
+                            Result.failure(IllegalStateException("Room has no movie reference"))
+                        } else {
+                            runCatching { PlexServerApi(current.server, clientIdentifier).fetchMovieDetail(ratingKey) }
+                        }
+                        val detail = fetched.getOrNull()
+                        if (detail == null) {
+                            state = AppState.Error(fetched.exceptionOrNull()?.message ?: "Couldn't load that room's movie")
+                            return@launch
+                        }
+                        val relay = ensureRelayClient(RoomIntent.Join(room.roomId))
+                        if (relay == null) {
+                            state = AppState.Error("No relay configured")
+                            return@launch
+                        }
+                        // Wait briefly for the join to actually resolve so a
+                        // room that just ended (host left between the last
+                        // /rooms poll and this press) shows a clear message
+                        // instead of dropping the viewer into a dead Lobby —
+                        // times out optimistically into Lobby rather than
+                        // blocking indefinitely on a slow relay.
+                        val resolved = withTimeoutOrNull(5_000) {
+                            relay.connectionState.first {
+                                it == ConnectionState.CONNECTED || it == ConnectionState.ROOM_NOT_FOUND
+                            }
+                        }
+                        state = if (resolved == ConnectionState.ROOM_NOT_FOUND) {
+                            AppState.Error("That room just ended.")
+                        } else {
+                            AppState.Lobby(current.server, detail, current, relay, room.hostName)
+                        }
+                    }
+                },
                 onResume = { item ->
                     scope.launch {
                         val fetched = runCatching {
                             PlexServerApi(current.server, clientIdentifier).fetchMovieDetail(item.ratingKey)
                         }
+                        val hostName = localAccount?.username ?: "Host"
                         state = fetched.fold(
                             onSuccess = { detail ->
-                                val relay = ensureRelayClient()
+                                val relay = ensureRelayClient(
+                                    RoomIntent.Create(title = item.title, thumb = item.thumb, ratingKey = item.ratingKey, hostName = hostName),
+                                )
                                 if (relay != null) {
-                                    AppState.Lobby(current.server, detail, current, relay)
+                                    AppState.Lobby(current.server, detail, current, relay, hostName)
                                 } else {
                                     AppState.Player(current.server, detail, current, relay)
                                 }
@@ -636,7 +712,15 @@ private fun AppRoot() {
                 // with an inline hint instead.
                 onWatchTogether = { targetRatingKey ->
                     scope.launch {
-                        val relay = ensureRelayClient()
+                        val hostName = localAccount?.username ?: "Host"
+                        val relay = ensureRelayClient(
+                            RoomIntent.Create(
+                                title = current.movie.title,
+                                thumb = current.movie.thumb,
+                                ratingKey = targetRatingKey,
+                                hostName = hostName,
+                            ),
+                        )
                         if (relay == null) {
                             state = AppState.Settings(
                                 current.ctx,
@@ -648,7 +732,7 @@ private fun AppRoot() {
                                 PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(targetRatingKey)
                             }
                             state = fetched.fold(
-                                onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current, relay) },
+                                onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current, relay, hostName) },
                                 onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                             )
                         }
@@ -732,11 +816,19 @@ private fun AppRoot() {
                         val fetched = runCatching {
                             PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
                         }
+                        val hostName = localAccount?.username ?: "Host"
                         state = fetched.fold(
                             onSuccess = { detail ->
-                                val relay = ensureRelayClient()
+                                val relay = ensureRelayClient(
+                                    RoomIntent.Create(
+                                        title = "${current.show.title}: ${episode.title}",
+                                        thumb = episode.thumb,
+                                        ratingKey = episode.ratingKey,
+                                        hostName = hostName,
+                                    ),
+                                )
                                 if (relay != null) {
-                                    AppState.Lobby(current.ctx.server, detail, current, relay)
+                                    AppState.Lobby(current.ctx.server, detail, current, relay, hostName)
                                 } else {
                                     AppState.Player(current.ctx.server, detail, current, relay)
                                 }
@@ -755,6 +847,7 @@ private fun AppRoot() {
                 detail = current.detail,
                 localUsername = localAccount?.username ?: "You",
                 localAvatarUrl = localAccount?.thumb,
+                hostName = current.hostName,
                 relay = current.relay,
                 onStart = { state = AppState.Player(current.server, current.detail, current.returnState, current.relay) },
                 onBack = {

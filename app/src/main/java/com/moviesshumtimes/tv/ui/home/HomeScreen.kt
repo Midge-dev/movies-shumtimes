@@ -23,14 +23,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -41,6 +44,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -55,15 +59,19 @@ import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.sync.RelayRoomSummary
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumCard
 import com.moviesshumtimes.tv.ui.kit.ShumCardContainer
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.theme.AppOnSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppScrim
+import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
+import kotlinx.coroutines.launch
 
 private const val TYPE_EPISODE = "episode"
 
@@ -78,6 +86,12 @@ fun HomeScreen(
     onDeck: List<PlexOnDeckItem>,
     recentlyAdded: List<PlexLibraryItem>,
     suggestions: List<PlexOnDeckItem>,
+    liveRooms: List<RelayRoomSummary>,
+    // Which room (if any) this device currently occupies — marks that
+    // room's card Rejoin instead of Join. Null whenever not in a room at
+    // all (including "not connected to any relay").
+    myRoomId: String?,
+    onSelectRoom: (RelayRoomSummary) -> Unit,
     onResume: (PlexOnDeckItem) -> Unit,
     onRemove: (PlexOnDeckItem) -> Unit,
     onSelectRecentlyAdded: (PlexLibraryItem) -> Unit,
@@ -87,20 +101,28 @@ fun HomeScreen(
     // AppNavigationDrawer's sidebar is the first focusable thing in the
     // composition — same pattern as every other screen it wraps (see
     // LibraryScreen's matching comment). Only one row actually gets the
-    // requester: whichever is first non-empty, in display order — Continue
-    // Watching, then Recently Added, then Suggestions — so focus always
-    // lands on the first real poster on screen, not wherever Continue
-    // Watching happens to be even when it's empty.
-    // Nesting a LazyRow inside a LazyColumn item (needed for the three-row
+    // requester: whichever is first non-empty, in display order — Watch
+    // Together (design spec 09b: "takes initial focus when it appears"),
+    // then Continue Watching, then Recently Added, then Suggestions — so
+    // focus always lands on the first real card on screen, not wherever
+    // Continue Watching happens to be even when it's empty.
+    // Nesting a LazyRow inside a LazyColumn item (needed for the four-row
     // layout below) means the target poster isn't necessarily composed yet
     // on the very first frame this effect runs — confirmed on-device: a
     // single un-retried requestFocus() here silently failed every time,
     // leaving focus stuck in the sidebar with D-pad Down never reaching the
     // content at all. Retrying across a few frames covers that gap.
-    val continueWatchingGetsFocus = onDeck.isNotEmpty()
-    val recentlyAddedGetsFocus = !continueWatchingGetsFocus && recentlyAdded.isNotEmpty()
-    val suggestionsGetsFocus = !continueWatchingGetsFocus && !recentlyAddedGetsFocus && suggestions.isNotEmpty()
-    LaunchedEffect(onDeck, recentlyAdded, suggestions) {
+    val watchTogetherGetsFocus = liveRooms.isNotEmpty()
+    val continueWatchingGetsFocus = !watchTogetherGetsFocus && onDeck.isNotEmpty()
+    val recentlyAddedGetsFocus = !watchTogetherGetsFocus && !continueWatchingGetsFocus && recentlyAdded.isNotEmpty()
+    val suggestionsGetsFocus =
+        !watchTogetherGetsFocus && !continueWatchingGetsFocus && !recentlyAddedGetsFocus && suggestions.isNotEmpty()
+    // Keyed on watchTogetherGetsFocus (a derived boolean), not the raw
+    // liveRooms list — liveRooms is polled every 5s and gets a new list
+    // instance each time even when nothing changed, which would otherwise
+    // re-run this focus grab on every poll tick and yank focus back to the
+    // top of the screen out from under whatever the user had scrolled to.
+    LaunchedEffect(watchTogetherGetsFocus, onDeck, recentlyAdded, suggestions) {
         repeat(5) {
             if (runCatching { firstItemFocus.requestFocus() }.isSuccess) return@LaunchedEffect
             withFrameNanos {}
@@ -121,6 +143,16 @@ fun HomeScreen(
         // row below them.
         contentPadding = PaddingValues(bottom = 48.dp),
     ) {
+        item {
+            WatchTogetherRow(
+                server = server,
+                rooms = liveRooms,
+                myRoomId = myRoomId,
+                onSelectRoom = onSelectRoom,
+                firstCardFocusRequester = if (watchTogetherGetsFocus) firstItemFocus else null,
+            )
+        }
+
         item {
             Text(
                 text = "Continue Watching",
@@ -205,6 +237,153 @@ private fun <T> HomeRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         itemsIndexed(items, key = { _, item -> key(item) }) { index, item -> itemContent(item, index) }
+    }
+}
+
+// Design spec 09b: how many rooms fit before the "+N more rooms" tile —
+// beyond this, all rooms are still real LazyRow items (reachable by normal
+// D-pad scrolling), the tile is a visual/paging shortcut, not a hard cutoff.
+private const val VISIBLE_ROOM_CARDS = 3
+
+// Self-hides entirely when no room is live — never an empty state, never a
+// placeholder, same convention as every other row on this screen.
+@Composable
+private fun WatchTogetherRow(
+    server: PlexServer,
+    rooms: List<RelayRoomSummary>,
+    myRoomId: String?,
+    onSelectRoom: (RelayRoomSummary) -> Unit,
+    firstCardFocusRequester: FocusRequester?,
+) {
+    if (rooms.isEmpty()) return
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(start = 32.dp, top = 32.dp, bottom = 16.dp),
+        ) {
+            Box(modifier = Modifier.width(8.dp).height(8.dp).background(NeonPurple, shape = RoundedCornerShape(50)))
+            Text(text = "Watch Together", style = ShumTypography.titleLarge)
+            Text(
+                text = "${rooms.size} room${if (rooms.size == 1) "" else "s"} live",
+                color = AppOnSurfaceVariant,
+            )
+        }
+        LazyRow(
+            state = listState,
+            contentPadding = PaddingValues(horizontal = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            itemsIndexed(rooms, key = { _, room -> room.roomId }) { index, room ->
+                RoomCard(
+                    server = server,
+                    room = room,
+                    isMine = room.roomId == myRoomId,
+                    onClick = { onSelectRoom(room) },
+                    modifier = if (index == 0 && firstCardFocusRequester != null) {
+                        Modifier.focusRequester(firstCardFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                )
+            }
+            if (rooms.size > VISIBLE_ROOM_CARDS) {
+                item {
+                    OverflowTile(
+                        count = rooms.size - VISIBLE_ROOM_CARDS,
+                        onClick = { scope.launch { listState.animateScrollToItem(VISIBLE_ROOM_CARDS) } },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoomCard(
+    server: PlexServer,
+    room: RelayRoomSummary,
+    isMine: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val full = room.occupants >= room.maxSeats
+    val label = when {
+        full -> "Full"
+        isMine -> "Rejoin"
+        else -> "Join"
+    }
+    ShumCardContainer(
+        modifier = modifier.width(300.dp),
+        imageCard = { interactionSource ->
+            ShumCard(
+                onClick = onClick,
+                enabled = !full,
+                interactionSource = interactionSource,
+                modifier = Modifier.fillMaxWidth().height(104.dp),
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    ShumArtwork(
+                        model = PlexImageUrl.of(server, room.thumb),
+                        contentDescription = room.title,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, AppScrim.copy(alpha = 0.85f)))),
+                    )
+                    Text(
+                        text = room.title,
+                        color = AppWhite,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(14.dp),
+                    )
+                    if (isMine) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(10.dp)
+                                .background(NeonPurple.copy(alpha = 0.9f), RoundedCornerShape(50))
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        ) {
+                            Text(text = "You're in", color = AppWhite)
+                        }
+                    }
+                }
+            }
+        },
+        title = {
+            Column(modifier = Modifier.padding(top = 12.dp)) {
+                Text(text = label, color = AppOnSurfaceVariant)
+                Text(
+                    text = "${room.hostName} hosting",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${room.occupants} of ${room.maxSeats} watching",
+                    color = AppOnSurfaceVariant,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun OverflowTile(count: Int, onClick: () -> Unit) {
+    ShumCard(onClick = onClick, modifier = Modifier.width(132.dp).height(212.dp)) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Text(text = "+$count", style = ShumTypography.headlineMedium)
+            Text(text = "more rooms", color = AppOnSurfaceVariant)
+        }
     }
 }
 
