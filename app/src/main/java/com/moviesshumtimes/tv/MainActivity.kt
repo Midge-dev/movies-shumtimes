@@ -28,10 +28,12 @@ import com.moviesshumtimes.tv.ui.theme.AppOnBackground
 import com.moviesshumtimes.tv.data.plex.PlexAccount
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
 import com.moviesshumtimes.tv.data.plex.PlexEpisode
+import com.moviesshumtimes.tv.data.plex.PlexHub
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
 import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
+import com.moviesshumtimes.tv.data.plex.PlexPerson
 import com.moviesshumtimes.tv.data.plex.PlexResourcesApi
 import com.moviesshumtimes.tv.data.plex.PlexSeason
 import com.moviesshumtimes.tv.data.plex.PlexSection
@@ -47,6 +49,7 @@ import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
+import com.moviesshumtimes.tv.ui.library.PersonFilmographyScreen
 import com.moviesshumtimes.tv.ui.library.ShowEpisodesScreen
 import com.moviesshumtimes.tv.ui.library.ShowSeasonsScreen
 import com.moviesshumtimes.tv.ui.lobby.LobbyScreen
@@ -153,6 +156,17 @@ private sealed interface AppState {
     // so a second Back-press after landing back on MovieDetail still
     // resolves correctly.
     data class MovieDetail(val ctx: LibraryContext, val movie: PlexLibraryItem, val returnState: AppState) : AppState
+    // Reached by pressing a cast/crew member on MovieDetail (design spec
+    // 09c) — a dedicated lightweight grid rather than reusing LibraryScreen,
+    // whose sort/genre/decade/search UI and nav-drawer section highlighting
+    // don't fit a person-filtered view. items is fetched once, up front,
+    // same as ShowSeasons/ShowEpisodes below.
+    data class PersonFilmography(
+        val ctx: LibraryContext,
+        val person: PlexPerson,
+        val items: List<PlexLibraryItem>,
+        val returnState: AppState,
+    ) : AppState
     data class ShowSeasons(
         val ctx: LibraryContext,
         val show: PlexLibraryItem,
@@ -546,6 +560,62 @@ private fun AppRoot() {
                         )
                     }
                 },
+                // Detail-screen info sections (design spec 09c) — cast/crew/
+                // ratings/reviews/related all come off the same
+                // fetchMovieDetail/fetchRelatedHubs calls used elsewhere for
+                // playback info, just requested here for their display
+                // fields instead. Best-effort: a failure here should leave
+                // the hero usable rather than erroring the whole screen.
+                loadDetail = {
+                    runCatching {
+                        PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(current.movie.ratingKey)
+                    }.getOrNull()
+                },
+                loadRelatedHubs = {
+                    runCatching {
+                        PlexServerApi(current.ctx.server, clientIdentifier).fetchRelatedHubs(current.movie.ratingKey)
+                    }.getOrDefault(emptyList())
+                },
+                loadByActor = { actorId ->
+                    runCatching {
+                        PlexServerApi(current.ctx.server, clientIdentifier)
+                            .fetchLibraryItemsByActor(current.ctx.selectedSection.key, actorId)
+                    }.getOrDefault(emptyList())
+                },
+                // A related/more-with poster only carries the fields Plex's
+                // hub response gives it (ratingKey/type/title/thumb/art) —
+                // same stub-construction shape as Home's onSelectSuggestion
+                // above, staying within the current section's context since
+                // a movie's related hubs are themselves other movies.
+                onSelectRelated = { item ->
+                    val relatedMovie = PlexLibraryItem(
+                        ratingKey = item.ratingKey,
+                        type = item.type,
+                        title = item.title,
+                        thumb = item.thumb,
+                        art = item.art,
+                    )
+                    state = AppState.MovieDetail(current.ctx, relatedMovie, returnState = current)
+                },
+                onSelectPerson = { person ->
+                    scope.launch {
+                        val actorId = person.id
+                        val fetched = if (actorId == null) {
+                            Result.success(emptyList())
+                        } else {
+                            runCatching {
+                                PlexServerApi(current.ctx.server, clientIdentifier)
+                                    .fetchLibraryItemsByActor(current.ctx.selectedSection.key, actorId)
+                            }
+                        }
+                        state = fetched.fold(
+                            onSuccess = { items ->
+                                AppState.PersonFilmography(current.ctx, person, items, current)
+                            },
+                            onFailure = { AppState.Error(it.message ?: "Couldn't load filmography") },
+                        )
+                    }
+                },
                 // Play — direct to player, relay untouched. No room, no
                 // presence, no sync; this is the solo path and must never
                 // require a configured relay.
@@ -584,6 +654,25 @@ private fun AppRoot() {
                         }
                     }
                 },
+            )
+        }
+        is AppState.PersonFilmography -> AppNavigationDrawer(
+            sections = current.ctx.sections,
+            selectedSectionKey = current.ctx.selectedSection.key,
+            isSettingsSelected = false,
+            isHomeSelected = false,
+            onSelectSection = { section -> selectSection(current.ctx, section) },
+            onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
+            onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+        ) {
+            PersonFilmographyScreen(
+                server = current.ctx.server,
+                personName = current.person.tag,
+                items = current.items,
+                onSelectItem = { item ->
+                    state = AppState.MovieDetail(current.ctx, item, returnState = current)
+                },
+                onBack = { returnTo(current.returnState) },
             )
         }
         is AppState.ShowSeasons -> AppNavigationDrawer(

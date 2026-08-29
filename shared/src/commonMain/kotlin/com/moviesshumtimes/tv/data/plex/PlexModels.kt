@@ -119,8 +119,37 @@ data class PlexMedia(
     @SerialName("Part") val parts: List<PlexPart> = emptyList(),
 )
 
+// A cast/crew member as Plex's Role/Director/Writer elements all share this
+// shape — role (character name) is only ever populated on Role entries.
+// id is the person's server-scoped tag ID, used with ?actor=/?director= to
+// query "everything else with this person" (confirmed against a real server
+// this session).
+@Serializable
+data class PlexPerson(
+    val id: Long? = null,
+    val tag: String,
+    val role: String? = null,
+    val thumb: String? = null,
+)
+
+// One critic review, as returned by /library/metadata/{id}?includeReviews=1
+// — confirmed this session against a real server (Rotten Tomatoes-sourced).
+// tag is the critic's own byline; source is the outlet, which is what's
+// actually shown in the UI as the kicker. Plex's response also includes a
+// link, deliberately not modeled here — a URL is dead weight on a remote.
+@Serializable
+data class PlexReview(
+    val tag: String,
+    val text: String,
+    val source: String? = null,
+    val image: String? = null,
+)
+
 // Detail needed to actually play something — a movie or an episode, both of
-// which have the same Media/Part/Stream shape in Plex's API.
+// which have the same Media/Part/Stream shape in Plex's API. Also carries
+// the detail-screen info-section data (cast/crew/ratings/reviews) sourced
+// from the same /library/metadata/{id} call, confirmed against a real
+// server this session.
 @Serializable
 data class PlexMovieDetail(
     val ratingKey: String,
@@ -131,6 +160,18 @@ data class PlexMovieDetail(
     // start from the beginning.
     val viewOffset: Long? = null,
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),
+    // 0-10 critic/audience scores — multiply by 10 to render as a percentage.
+    val rating: Double? = null,
+    val audienceRating: Double? = null,
+    // e.g. "rottentomatoes://image.rating.rotten" — never invent a badge
+    // mark from these; map the URI's fresh/rotten/ripe/spilled suffix to a
+    // bundled in-house glyph instead (avoids bundling RT's own artwork).
+    val ratingImage: String? = null,
+    val audienceRatingImage: String? = null,
+    @SerialName("Role") val roles: List<PlexPerson> = emptyList(),
+    @SerialName("Director") val directors: List<PlexPerson> = emptyList(),
+    @SerialName("Writer") val writers: List<PlexPerson> = emptyList(),
+    @SerialName("Review") val reviews: List<PlexReview> = emptyList(),
 )
 
 // A mixed on-deck entry — a partially-watched movie, or the next-up episode

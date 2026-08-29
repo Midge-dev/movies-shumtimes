@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -46,6 +47,10 @@ fun ShumCard(
     onLongClick: (() -> Unit)? = null,
     interactionSource: MutableInteractionSource? = null,
     focusScale: Float = DEFAULT_FOCUS_SCALE,
+    // CardShape (radius.sm) for every poster/tile in the app; a cast/crew
+    // avatar passes CircleShape instead, reusing the same focus/glow/scale
+    // behavior rather than re-deriving it.
+    shape: Shape = CardShape,
     content: @Composable () -> Unit,
 ) {
     val actualInteractionSource = interactionSource ?: remember { MutableInteractionSource() }
@@ -66,7 +71,7 @@ fun ShumCard(
         modifier = modifier
             .zIndex(if (isFocused) 1f else 0f)
             .graphicsLayer { scaleX = scale; scaleY = scale },
-        shape = CardShape,
+        shape = shape,
         colors = cardColors,
         border = cardBorder,
         glow = cardGlow,

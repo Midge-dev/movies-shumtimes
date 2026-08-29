@@ -28,12 +28,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.R
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
+import com.moviesshumtimes.tv.data.settings.ChatOverlayCorner
+import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.sync.ChatMessage
 import com.moviesshumtimes.tv.sync.ConnectionState
 import com.moviesshumtimes.tv.sync.RelayClient
@@ -52,6 +55,7 @@ import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import java.net.URI
 import java.net.URLEncoder
 
@@ -78,6 +82,21 @@ fun LobbyScreen(
     var roster by remember { mutableStateOf<Map<String, RosterEntry>>(emptyMap()) }
     var showChatModal by remember { mutableStateOf(false) }
     val chatMessages = remember { MutableSharedFlow<ChatMessage>(extraBufferCapacity = 16) }
+
+    // Lobby renders immediately with the default corner and re-aligns once
+    // the real preference loads — unlike PlayerScreen, this screen shouldn't
+    // block on a settings read just to draw its chat overlay.
+    val context = LocalContext.current
+    var chatOverlayCorner by remember { mutableStateOf(ChatOverlayCorner.BOTTOM_END) }
+    LaunchedEffect(Unit) {
+        chatOverlayCorner = context.appSettingsStore.observe().first().chatOverlayCorner
+    }
+    val chatAlignment = when (chatOverlayCorner) {
+        ChatOverlayCorner.TOP_START -> Alignment.TopStart
+        ChatOverlayCorner.TOP_END -> Alignment.TopEnd
+        ChatOverlayCorner.BOTTOM_START -> Alignment.BottomStart
+        ChatOverlayCorner.BOTTOM_END -> Alignment.BottomEnd
+    }
 
     BackHandler(onBack = onBack)
     // Composed after (and so takes priority over) the screen-level handler
@@ -175,7 +194,8 @@ fun LobbyScreen(
 
         ChatOverlay(
             messages = chatMessages,
-            modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth(0.5f).padding(24.dp),
+            corner = chatOverlayCorner,
+            modifier = Modifier.align(chatAlignment).fillMaxWidth(0.5f).padding(24.dp),
         )
 
         if (showChatModal) {

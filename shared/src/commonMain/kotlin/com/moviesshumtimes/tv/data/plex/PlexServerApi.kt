@@ -98,8 +98,27 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
     suspend fun fetchEpisodes(seasonRatingKey: String): List<PlexEpisode> =
         get<EpisodesResponse>("${server.baseUrl}/library/metadata/$seasonRatingKey/children").mediaContainer.items
 
+    // includeReviews=1 is what makes the server attach the Review[] array
+    // (Rotten Tomatoes critic quotes) to the response — confirmed this
+    // session against a real server; without it Review is simply absent.
     suspend fun fetchMovieDetail(ratingKey: String): PlexMovieDetail =
-        get<MovieDetailResponse>("${server.baseUrl}/library/metadata/$ratingKey").mediaContainer.items.first()
+        get<MovieDetailResponse>("${server.baseUrl}/library/metadata/$ratingKey?includeReviews=1").mediaContainer.items.first()
+
+    // Confirmed this session against a real server: a single call to
+    // /related returns both a "Related Movies" hub and, when the top-billed
+    // actor has other titles in this library, an auto-generated
+    // "More with <lead actor>" hub — render each under the title the server
+    // gives it rather than assuming which hubs come back or hardcoding
+    // "Related Movies".
+    suspend fun fetchRelatedHubs(ratingKey: String): List<PlexHub> =
+        get<HubsResponse>("${server.baseUrl}/library/metadata/$ratingKey/related").mediaContainer.hubs
+
+    // For "More with <co-star>" — Plex only auto-generates a same-actor hub
+    // for the top-billed cast member (see fetchRelatedHubs), so any other
+    // cast/crew member's filmography has to be queried directly. actorId is
+    // the person's PlexPerson.id (their tag ID), not their name.
+    suspend fun fetchLibraryItemsByActor(sectionKey: String, actorId: Long): List<PlexLibraryItem> =
+        get<LibraryItemsResponse>("${server.baseUrl}/library/sections/$sectionKey/all?actor=$actorId").mediaContainer.items
 
     suspend fun fetchOnDeck(): List<PlexOnDeckItem> =
         get<OnDeckResponse>("${server.baseUrl}/library/onDeck").mediaContainer.items
