@@ -12,10 +12,18 @@ import kotlin.concurrent.thread
 
 // A tiny, hand-rolled, LAN-only HTTP server — the whole surface needed is
 // exactly two routes (serve a form, accept its POST), so a real server
-// dependency would be overkill. Lets a phone on the same Wi-Fi "paste" the
-// long relay URL into this TV's Settings screen without typing it on a
+// dependency would be overkill. Lets a phone on the same Wi-Fi "paste" a
+// relay's nickname + URL into this TV's Settings screen without typing on a
 // remote — the closest local-only analog to Plex's own PIN-link flow.
-class PairingServer(private val onSubmitted: (String) -> Unit) {
+// Design spec 09d: this is invoked fresh per relay-add (one PairingServer
+// instance per attempt, same as it always was for the single relay-URL
+// case) — nothing here is a singleton, so "add a second/third relay later"
+// needed no lifecycle change, just a second form field.
+class PairingServer(
+    private val prefillNickname: String = "",
+    private val prefillUrl: String = "",
+    private val onSubmitted: (nickname: String, url: String) -> Unit,
+) {
     // A per-session random path segment, not just "/" — avoids a stray
     // request from something else on the LAN (or a port-scanner) landing on
     // the form by accident.
@@ -70,12 +78,14 @@ class PairingServer(private val onSubmitted: (String) -> Unit) {
                 method == "GET" && path == "/$token" -> writeHtml(output, formPage())
                 method == "POST" && path == "/$token/submit" -> {
                     val body = readBody(reader, contentLength)
-                    val value = parseFormUrl(body)
-                    if (value.isNullOrBlank()) {
+                    val fields = parseFormFields(body)
+                    val url = fields["url"]
+                    if (url.isNullOrBlank()) {
                         writeHtml(output, formPage(error = "Paste a URL first"))
                     } else {
+                        val nickname = fields["nickname"]?.takeIf { it.isNotBlank() } ?: "My relay"
                         writeHtml(output, successPage())
-                        onSubmitted(value)
+                        onSubmitted(nickname, url)
                     }
                 }
                 else -> writeText(output, 404, "Not found")
@@ -94,13 +104,11 @@ class PairingServer(private val onSubmitted: (String) -> Unit) {
         return String(buffer, 0, read)
     }
 
-    private fun parseFormUrl(body: String): String? =
+    private fun parseFormFields(body: String): Map<String, String> =
         body.split("&")
             .map { it.split("=", limit = 2) }
-            .firstOrNull { it.getOrNull(0) == "url" }
-            ?.getOrNull(1)
-            ?.let { URLDecoder.decode(it, "UTF-8") }
-            ?.trim()
+            .filter { it.size == 2 }
+            .associate { it[0] to URLDecoder.decode(it[1], "UTF-8").trim() }
 
     private fun formPage(error: String? = null): String {
         val errorHtml = error?.let { "<p class=\"error\">${it}</p>" } ?: ""
@@ -114,10 +122,11 @@ class PairingServer(private val onSubmitted: (String) -> Unit) {
             </head><body>
               <div class="card">
                 <h1>Movies Shumtimes</h1>
-                <p>Paste the relay URL below — it'll appear in Settings on your TV.</p>
+                <p>Name this relay and paste its URL — both will appear on your TV.</p>
                 $errorHtml
                 <form method="POST" action="/$token/submit">
-                  <input type="text" name="url" placeholder="wss://your-relay-url?token=..." autofocus autocomplete="off">
+                  <input type="text" name="nickname" placeholder="Nickname (e.g. Sean's relay)" value="${escapeHtmlAttr(prefillNickname)}" autofocus autocomplete="off">
+                  <input type="text" name="url" placeholder="wss://your-relay-url?token=..." value="${escapeHtmlAttr(prefillUrl)}" autocomplete="off">
                   <button type="submit">Send to TV</button>
                 </form>
               </div>
@@ -135,7 +144,7 @@ class PairingServer(private val onSubmitted: (String) -> Unit) {
         </head><body>
           <div class="card">
             <h1>Sent ✓</h1>
-            <p>Check your TV — the relay URL should already be filled in. You can close this tab.</p>
+            <p>Check your TV — the relay should already be filled in. You can close this tab.</p>
           </div>
         </body></html>
     """.trimIndent()
@@ -202,3 +211,6 @@ private fun writeText(output: OutputStream, code: Int, text: String) {
 }
 
 private fun OutputStream.write(s: String) = write(s.toByteArray(Charsets.UTF_8))
+
+private fun escapeHtmlAttr(s: String): String =
+    s.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")

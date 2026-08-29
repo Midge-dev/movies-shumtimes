@@ -5,6 +5,7 @@ import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,11 +50,16 @@ import com.moviesshumtimes.tv.data.plex.PlexResource
 import com.moviesshumtimes.tv.data.plex.PlexResourcesApi
 import com.moviesshumtimes.tv.data.settings.AppSettings
 import com.moviesshumtimes.tv.data.settings.ChatOverlayCorner
+import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
+import com.moviesshumtimes.tv.sync.RelayDirectoryApi
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.common.RelayStatus
+import com.moviesshumtimes.tv.ui.common.RelayStatusDot
+import com.moviesshumtimes.tv.ui.common.RelayStatusLine
 import com.moviesshumtimes.tv.ui.kit.FocusableSurface
 import com.moviesshumtimes.tv.ui.kit.ShumBorder
 import com.moviesshumtimes.tv.ui.kit.ShumButton
@@ -74,8 +81,10 @@ import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGradient
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 @Composable
 fun SettingsScreen(
@@ -112,12 +121,27 @@ fun SettingsScreen(
 
     BackHandler(onBack = onBack)
 
-    // "Pair from phone" — a phone on the same Wi-Fi can paste the relay URL
-    // via a tiny local web page served straight from the TV, instead of
-    // typing a long wss://...?token=... string on a remote.
+    // "Pair from phone" — a phone on the same Wi-Fi can type a relay's
+    // nickname + URL via a tiny local web page served straight from the TV,
+    // instead of typing a long wss://...?token=... string on a remote.
     var pairingServer by remember { mutableStateOf<PairingServer?>(null) }
     var pairingUrl by remember { mutableStateOf<String?>(null) }
     var pairingError by remember { mutableStateOf<String?>(null) }
+    // Non-null while the phone-pairing panel is open to edit an existing
+    // relay's nickname/URL in place, rather than append a new entry.
+    var editingRelayId by remember { mutableStateOf<String?>(null) }
+    // Design spec 09d: "Test & save" — a candidate relay's reachability is
+    // checked (tolerating a cold start) before it's added to the list, and
+    // saved either way, greyed if the test failed.
+    var testingRelayName by remember { mutableStateOf<String?>(null) }
+    var testStatus by remember { mutableStateOf<RelayStatus>(RelayStatus.Silent) }
+
+    val relayDirectoryApi = remember { RelayDirectoryApi() }
+    // id -> (reachable, room count) — null while still loading. Fetched
+    // once per relay list identity (on load, and again whenever a relay is
+    // added/removed) rather than continuously polled; this screen is
+    // short-lived.
+    var relayStatuses by remember { mutableStateOf<Map<String, Pair<Boolean, Int>?>>(emptyMap()) }
 
     DisposableEffect(Unit) {
         onDispose { pairingServer?.stop() }
@@ -130,13 +154,32 @@ fun SettingsScreen(
         return
     }
 
+    LaunchedEffect(settings.relays.map { it.id }) {
+        relayStatuses = settings.relays.associate { it.id to null }
+        for (entry in settings.relays) {
+            val reachable = relayDirectoryApi.testReachable(entry.url)
+            val count = if (reachable) relayDirectoryApi.listRooms(entry.url).size else 0
+            relayStatuses = relayStatuses + (entry.id to (reachable to count))
+        }
+    }
+
     // BasicTextField doesn't hand D-pad DOWN/UP off to neighboring
     // focusables on its own (it treats them as text-cursor movement first),
     // so the row below it would otherwise be unreachable by remote. These
     // FocusRequesters make the down/up route explicit between the fields.
     val sourceFocuses = remember(sources) { sources.map { FocusRequester() } }
-    val relayUrlFocus = remember { FocusRequester() }
-    val pairButtonFocus = remember { FocusRequester() }
+    // Keyed by relay id (stable across add/remove/make-default), not by the
+    // relay list itself — a remember(settings.relays) map would rebuild
+    // every FocusRequester whenever ANY entry's fields changed (they're
+    // data classes, so isDefault flipping changes list equality), orphaning
+    // whichever row/button currently held focus and dropping the remote's
+    // next press into the nav drawer. Entries for removed relays are simply
+    // left unused — harmless for a screen this short-lived.
+    val relayRowFocuses = remember { mutableStateMapOf<String, RelayRowFocus>() }
+    fun relayRowFocus(entry: RelayEntry): RelayRowFocus = relayRowFocuses.getOrPut(entry.id) { RelayRowFocus() }
+    val firstRelayRowFocus = settings.relays.firstOrNull()?.let { relayRowFocus(it).leftmost(it) }
+    val lastRelayRowFocus = settings.relays.lastOrNull()?.let { relayRowFocus(it).remove }
+    val addRelayFocus = remember { FocusRequester() }
     val cancelPairingFocus = remember { FocusRequester() }
     val bitrateRowFocus = remember { FocusRequester() }
     val forceBurnFocus = remember { FocusRequester() }
@@ -152,11 +195,12 @@ fun SettingsScreen(
     // is the first focusable thing in the composition, so this screen needs
     // its own explicit request too. Waits for sourcesLoaded since the
     // source rows (the preferred target) don't exist until that async
-    // fetch finishes either way — falls back to the always-present relay
-    // URL field if there are none.
+    // fetch finishes either way — falls back to the first relay row, or the
+    // always-present "Add a relay" row if there are none yet.
     LaunchedEffect(sourcesLoaded, sourceFocuses) {
         if (!sourcesLoaded) return@LaunchedEffect
-        runCatching { (sourceFocuses.firstOrNull() ?: relayUrlFocus).requestFocus() }
+        val target = sourceFocuses.firstOrNull() ?: firstRelayRowFocus ?: addRelayFocus
+        runCatching { target.requestFocus() }
     }
 
     Row(modifier = Modifier.fillMaxSize()) {
@@ -191,7 +235,11 @@ fun SettingsScreen(
                                     .focusRequester(sourceFocuses[index])
                                     .focusProperties {
                                         up = if (index > 0) sourceFocuses[index - 1] else FocusRequester.Default
-                                        down = if (index < sourceFocuses.lastIndex) sourceFocuses[index + 1] else relayUrlFocus
+                                        down = if (index < sourceFocuses.lastIndex) {
+                                            sourceFocuses[index + 1]
+                                        } else {
+                                            firstRelayRowFocus ?: addRelayFocus
+                                        }
                                     },
                             )
                         }
@@ -199,55 +247,153 @@ fun SettingsScreen(
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Relay list changes take effect immediately rather than waiting
+            // on the screen's big Save button below — the add flow already
+            // behaved this way (a relay shows up mid-screen as soon as the
+            // phone submits it), and Make default / Remove / Edit need the
+            // same immediacy so Home's room polling never disagrees with
+            // what Settings shows. Reads the currently *persisted* settings
+            // rather than the in-progress `settings` var, so an unsaved
+            // pending edit to something unrelated (bitrate, subtitles, ...)
+            // doesn't get silently committed early by a relay change.
+            fun persistRelays(newRelays: List<RelayEntry>) {
+                settings = settings.copy(relays = newRelays)
+                scope.launch {
+                    val persisted = context.appSettingsStore.observe().first()
+                    context.appSettingsStore.save(persisted.copy(relays = newRelays))
+                }
+            }
+
+            // Shared by "Add a relay" and each row's "Edit" button — both
+            // hand off to the same phone-pairing QR panel; editingId is null
+            // for a fresh add (appends a new entry) or a relay's id to
+            // update that entry in place instead.
+            fun startPairing(editingId: String?, prefillNickname: String, prefillUrl: String) {
+                pairingError = null
+                editingRelayId = editingId
+                val server = PairingServer(
+                    prefillNickname = prefillNickname,
+                    prefillUrl = prefillUrl,
+                    onSubmitted = { nickname, url ->
+                        Handler(Looper.getMainLooper()).post {
+                            pairingServer?.stop()
+                            pairingServer = null
+                            pairingUrl = null
+                            editingRelayId = null
+                            // The QR panel (and its focused Cancel button, if
+                            // that's what the remote was last aimed at) is
+                            // about to be removed from composition by
+                            // clearing pairingUrl above — without an
+                            // explicit target, Compose's focus-loss fallback
+                            // can escape to the nav drawer, and a buffered
+                            // remote press landing there reads as "kicked
+                            // out of Settings" (same bug class as this app's
+                            // other documented focus-escape fixes).
+                            runCatching { addRelayFocus.requestFocus() }
+                            scope.launch {
+                                testingRelayName = nickname
+                                testStatus = RelayStatus.Silent
+                                val silentJob = launch {
+                                    delay(2_000)
+                                    if (testStatus == RelayStatus.Silent) testStatus = RelayStatus.Waking
+                                }
+                                val reachable = relayDirectoryApi.testReachableTolerant(url)
+                                silentJob.cancel()
+                                val updatedRelays = if (editingId != null) {
+                                    settings.relays.map { if (it.id == editingId) it.copy(nickname = nickname, url = url) else it }
+                                } else {
+                                    settings.relays + RelayEntry(
+                                        id = UUID.randomUUID().toString(),
+                                        nickname = nickname,
+                                        url = url,
+                                        isDefault = settings.relays.isEmpty(),
+                                    )
+                                }
+                                persistRelays(updatedRelays)
+                                val statusId = editingId ?: updatedRelays.last().id
+                                val count = if (reachable) relayDirectoryApi.listRooms(url).size else 0
+                                relayStatuses = relayStatuses + (statusId to (reachable to count))
+                                testingRelayName = null
+                            }
+                        }
+                    },
+                )
+                val url = server.start()
+                if (url != null) {
+                    pairingServer = server
+                    pairingUrl = url
+                } else {
+                    pairingError = "Couldn't find a Wi-Fi address — is the TV connected to a network?"
+                    editingRelayId = null
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (hint != null) {
                     Text(hint, color = NeonPurple)
                 }
-                Text("Relay URL (watch-together server)")
-                ClickToTypeTextField(
-                    value = settings.relayUrl ?: "",
-                    onValueChange = { settings = settings.copy(relayUrl = it) },
-                    textStyle = TextStyle(color = AppOnSurface),
-                    modifier = Modifier
-                        .background(AppSurfaceVariant)
-                        .padding(12.dp)
-                        .width(500.dp)
-                        .focusRequester(relayUrlFocus)
-                        .focusProperties {
-                            up = if (sourceFocuses.isNotEmpty()) sourceFocuses.last() else FocusRequester.Default
-                            down = pairButtonFocus
-                        },
+                Text("Relays")
+                Text(
+                    "Anyone who keeps a relay running can be added by address — a cloud host, a Pi in " +
+                        "someone's front room, whatever answers.",
+                    color = AppOnSurfaceVariant,
                 )
 
-                ShumButton(
-                    onClick = {
-                        pairingError = null
-                        val server = PairingServer(
-                            onSubmitted = { value ->
-                                Handler(Looper.getMainLooper()).post {
-                                    settings = settings.copy(relayUrl = value)
-                                    pairingServer?.stop()
-                                    pairingServer = null
-                                    pairingUrl = null
-                                }
-                            },
-                        )
-                        val url = server.start()
-                        if (url != null) {
-                            pairingServer = server
-                            pairingUrl = url
+                settings.relays.forEachIndexed { index, entry ->
+                    val rowFocus = relayRowFocus(entry)
+                    RelayRow(
+                        entry = entry,
+                        status = relayStatuses[entry.id],
+                        onMakeDefault = {
+                            persistRelays(settings.relays.map { it.copy(isDefault = it.id == entry.id) })
+                        },
+                        onEdit = { startPairing(entry.id, entry.nickname, entry.url) },
+                        onRemove = {
+                            val remaining = settings.relays.filterNot { it.id == entry.id }
+                            persistRelays(
+                                if (entry.isDefault && remaining.isNotEmpty()) {
+                                    remaining.mapIndexed { i, r -> r.copy(isDefault = i == 0) }
+                                } else {
+                                    remaining
+                                },
+                            )
+                        },
+                        rowFocus = rowFocus,
+                        upFocus = if (index > 0) {
+                            val prev = settings.relays[index - 1]
+                            relayRowFocus(prev).leftmost(prev)
                         } else {
-                            pairingError = "Couldn't find a Wi-Fi address — is the TV connected to a network?"
-                        }
-                    },
+                            sourceFocuses.lastOrNull() ?: FocusRequester.Default
+                        },
+                        downFocus = if (index < settings.relays.lastIndex) {
+                            val next = settings.relays[index + 1]
+                            relayRowFocus(next).leftmost(next)
+                        } else {
+                            addRelayFocus
+                        },
+                    )
+                }
+
+                // Design spec 09d: same phone hand-off as first-run setup —
+                // the TV never asks anyone to type a wss:// address on a
+                // D-pad. Invoked fresh per attempt (add or edit), same as it
+                // always was.
+                FocusableSurface(
+                    onClick = { startPairing(editingId = null, prefillNickname = "", prefillUrl = "") },
                     modifier = Modifier
-                        .focusRequester(pairButtonFocus)
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .focusRequester(addRelayFocus)
                         .focusProperties {
-                            up = relayUrlFocus
+                            up = lastRelayRowFocus ?: (sourceFocuses.lastOrNull() ?: FocusRequester.Default)
                             down = if (pairingUrl != null) cancelPairingFocus else bitrateRowFocus
                         },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ShumColors(container = AppBackground, content = AppOnSurfaceVariant, focusedContent = AppWhite),
+                    border = ShumBorder(idle = BorderStroke(2.dp, AppDimBorder), focused = BorderStroke(2.dp, NeonPurpleGradient)),
+                    glow = ShumGlow(focusedColor = NeonPurpleGlow),
                 ) {
-                    Text("Pair from phone")
+                    Text("Add a relay")
                 }
 
                 if (pairingError != null) {
@@ -272,17 +418,24 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("Scan with your phone (same Wi-Fi as the TV), or visit:")
                             Text(pairingUrl!!, style = ShumTypography.bodyLarge)
-                            Text("Paste the relay URL there and it'll appear here automatically.")
+                            Text(
+                                if (editingRelayId != null) {
+                                    "Update the nickname and URL there — it'll change here automatically."
+                                } else {
+                                    "Type a nickname and the relay URL there — it'll appear here automatically."
+                                },
+                            )
                             ShumOutlinedButton(
                                 onClick = {
                                     pairingServer?.stop()
                                     pairingServer = null
                                     pairingUrl = null
+                                    editingRelayId = null
                                 },
                                 modifier = Modifier
                                     .focusRequester(cancelPairingFocus)
                                     .focusProperties {
-                                        up = pairButtonFocus
+                                        up = addRelayFocus
                                         down = bitrateRowFocus
                                     },
                             ) {
@@ -290,6 +443,15 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+
+                if (testingRelayName != null) {
+                    RelayStatusLine(
+                        status = testStatus,
+                        relayNickname = testingRelayName ?: "",
+                        onRetry = {},
+                        onHostOnAnother = null,
+                    )
                 }
             }
 
@@ -315,7 +477,7 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .let { if (index == 0) it.focusRequester(bitrateRowFocus) else it }
                                 .focusProperties {
-                                    up = if (pairingUrl != null) cancelPairingFocus else pairButtonFocus
+                                    up = if (pairingUrl != null) cancelPairingFocus else addRelayFocus
                                     down = forceBurnFocus
                                 },
                         ) {
@@ -374,7 +536,7 @@ fun SettingsScreen(
             ShumButton(
                 onClick = {
                     scope.launch {
-                        context.appSettingsStore.save(settings.copy(relayUrl = settings.relayUrl?.trim()?.ifBlank { null }))
+                        context.appSettingsStore.save(settings)
                         onSaved()
                     }
                 },
@@ -388,6 +550,111 @@ fun SettingsScreen(
 
         NeonScrollbar(scrollState = scrollState, modifier = Modifier.padding(vertical = 48.dp, horizontal = 12.dp))
     }
+}
+
+// Stable per-relay focus targets, keyed (by the caller) on entry.id rather
+// than list position — see the relayRowFocuses comment in SettingsScreen
+// for why identity has to survive add/remove/make-default.
+private class RelayRowFocus {
+    val makeDefault = FocusRequester()
+    val edit = FocusRequester()
+    val remove = FocusRequester()
+}
+
+// The leftmost real button in a row — default rows skip "Make default", so
+// their leftmost is "Edit" instead. Used to target vertical D-pad moves
+// between rows without caring which buttons a given row actually has.
+private fun RelayRowFocus.leftmost(entry: RelayEntry): FocusRequester = if (entry.isDefault) edit else makeDefault
+
+// Design spec 09d: one row per configured relay — dot, nickname (+ Default
+// badge) and a status line (room count / not responding) on the left, real
+// buttons on the right. The URL itself isn't shown — three actions (make
+// default, edit, remove) don't fit a click/hold-to-remove gesture model
+// cleanly, so each gets its own focusable button instead.
+@Composable
+private fun RelayRow(
+    entry: RelayEntry,
+    status: Pair<Boolean, Int>?,
+    onMakeDefault: () -> Unit,
+    onEdit: () -> Unit,
+    onRemove: () -> Unit,
+    rowFocus: RelayRowFocus,
+    upFocus: FocusRequester,
+    downFocus: FocusRequester,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppBackground, RoundedCornerShape(8.dp))
+            .border(BorderStroke(2.dp, AppDimBorder), RoundedCornerShape(8.dp))
+            .padding(horizontal = 28.dp, vertical = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        RelayStatusDot(status = if (status?.first == true) RelayStatus.DotOnly else RelayStatus.Silent)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(entry.nickname)
+                if (entry.isDefault) {
+                    Box(
+                        modifier = Modifier
+                            .background(NeonPurple.copy(alpha = 0.9f), RoundedCornerShape(50))
+                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                    ) {
+                        Text("Default", color = AppWhite)
+                    }
+                }
+            }
+            Text(relayStatusLabel(status), color = AppOnSurfaceVariant)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (!entry.isDefault) {
+                ShumOutlinedButton(
+                    onClick = onMakeDefault,
+                    modifier = Modifier
+                        .focusRequester(rowFocus.makeDefault)
+                        .focusProperties {
+                            up = upFocus
+                            down = downFocus
+                            right = rowFocus.edit
+                        },
+                ) {
+                    Text("Make default")
+                }
+            }
+            ShumOutlinedButton(
+                onClick = onEdit,
+                modifier = Modifier
+                    .focusRequester(rowFocus.edit)
+                    .focusProperties {
+                        up = upFocus
+                        down = downFocus
+                        left = if (!entry.isDefault) rowFocus.makeDefault else FocusRequester.Default
+                        right = rowFocus.remove
+                    },
+            ) {
+                Text("Edit")
+            }
+            ShumOutlinedButton(
+                onClick = onRemove,
+                modifier = Modifier
+                    .focusRequester(rowFocus.remove)
+                    .focusProperties {
+                        up = upFocus
+                        down = downFocus
+                        left = rowFocus.edit
+                    },
+            ) {
+                Text("Remove")
+            }
+        }
+    }
+}
+
+private fun relayStatusLabel(status: Pair<Boolean, Int>?): String = when {
+    status == null -> "…"
+    !status.first -> "Not responding"
+    else -> "${status.second} room${if (status.second == 1) "" else "s"}"
 }
 
 // Design spec section 07: four focusable 2×2 tiles, each a miniature of the

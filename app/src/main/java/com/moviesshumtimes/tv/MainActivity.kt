@@ -40,8 +40,10 @@ import com.moviesshumtimes.tv.data.plex.PlexSeason
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.plex.PlexServerApi
+import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.data.settings.RelayIdentity
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
+import com.moviesshumtimes.tv.data.settings.defaultRelay
 import com.moviesshumtimes.tv.data.settings.plexIdentityStore
 import com.moviesshumtimes.tv.data.settings.relayIdentityStore
 import com.moviesshumtimes.tv.data.settings.tokenStore
@@ -59,6 +61,7 @@ import com.moviesshumtimes.tv.ui.library.ShowEpisodesScreen
 import com.moviesshumtimes.tv.ui.library.ShowSeasonsScreen
 import com.moviesshumtimes.tv.ui.lobby.LobbyScreen
 import com.moviesshumtimes.tv.ui.home.HomeScreen
+import com.moviesshumtimes.tv.ui.home.MergedRoom
 import com.moviesshumtimes.tv.ui.navigation.AppNavigationDrawer
 import com.moviesshumtimes.tv.ui.player.PlayerScreen
 import com.moviesshumtimes.tv.ui.settings.RelaySetupScreen
@@ -208,6 +211,9 @@ private sealed interface AppState {
         // joining someone else's (a guest otherwise has no way to know who
         // opened the room). See LobbyScreen's matching doc comment.
         val hostName: String,
+        // Which relay this room is on — design spec 09d shows this next to
+        // the title in Lobby's header alongside the connection status dot.
+        val relayNickname: String,
     ) : AppState
     data class Player(
         val server: PlexServer,
@@ -237,9 +243,13 @@ private fun AppRoot() {
     // now multi-tenant (design spec 09b): every call states whether it's
     // hosting a fresh room or joining a specific one by id, since there's
     // no longer a single implicit room the connection always lands in.
-    suspend fun ensureRelayClient(intent: RoomIntent): RelayClient? {
+    // relayUrl is now caller-supplied rather than derived from a single
+    // setting — hosting uses settings.defaultRelay, joining uses whichever
+    // relay the target room actually lives on (design spec 09d: multiple
+    // relays, a room's relay isn't necessarily the default).
+    suspend fun ensureRelayClient(relayUrl: String, intent: RoomIntent): RelayClient? {
         relayClient?.let { return it }
-        val relayUrl = context.appSettingsStore.observe().first().relayUrl?.takeIf { it.isNotBlank() } ?: return null
+        if (relayUrl.isBlank()) return null
         val identity = relayIdentity ?: context.relayIdentityStore.load().also { relayIdentity = it }
         val newClient = RelayClient(
             relayUrl = relayUrl,
@@ -249,6 +259,7 @@ private fun AppRoot() {
                 relayIdentity = updated
                 updated.reconnectToken?.let { context.relayIdentityStore.saveReconnectToken(it) }
             },
+            onHostedRoomIdUpdated = { hostedId -> context.relayIdentityStore.saveHostedRoomId(hostedId) },
         )
         newClient.connect(intent)
         relayClient = newClient
@@ -260,23 +271,81 @@ private fun AppRoot() {
         relayClient = null
     }
 
-    // Home's Watch Together row (design spec 09b) — polled rather than
-    // pushed over a live socket, since browsing Home shouldn't require
-    // holding a WebSocket open just to see what's live. Runs for the whole
-    // app lifetime as one loop (cheap — a no-op check most of the time)
-    // rather than restarting on every Home-state rebuild, matching the
-    // always-on polling idiom already used elsewhere in this file.
-    var liveRooms by remember { mutableStateOf<List<RelayRoomSummary>>(emptyList()) }
+    // Home's Watch Together row (design spec 09b, extended by 09d for
+    // multiple relays) — polled rather than pushed over a live socket,
+    // since browsing Home shouldn't require holding a WebSocket open just
+    // to see what's live. Runs for the whole app lifetime as one loop
+    // (cheap — a no-op check most of the time) rather than restarting on
+    // every Home-state rebuild, matching the always-on polling idiom
+    // already used elsewhere in this file.
+    //
+    // Every configured relay is queried in parallel and the merged map is
+    // updated as each one resolves — not awaited all together — so one
+    // slow/sleeping relay never delays another relay's rooms from
+    // appearing (design spec 09d: "a slow or sleeping relay never holds up
+    // the row").
+    var liveRoomsByRelay by remember { mutableStateOf<Map<String, List<RelayRoomSummary>>>(emptyMap()) }
+    var liveRelaysById by remember { mutableStateOf<Map<String, RelayEntry>>(emptyMap()) }
+    // The room this device most recently hosted (seat 0), independent of
+    // whether a live RelayClient still exists for it — see RelayIdentity's
+    // hostedRoomId. Drives Home's "End session" control, which has to work
+    // even after Lobby/Player's onBack/onExit has already torn the socket
+    // down.
+    var hostedRoomId by remember { mutableStateOf<String?>(null) }
     val relayDirectoryApi = remember { RelayDirectoryApi() }
     LaunchedEffect(Unit) {
         while (true) {
-            liveRooms = if (state is AppState.Home) {
-                val relayUrl = context.appSettingsStore.observe().first().relayUrl?.takeIf { it.isNotBlank() }
-                relayUrl?.let { relayDirectoryApi.listRooms(it) } ?: emptyList()
+            if (state is AppState.Home) {
+                // Two entries can point at the same physical relay (e.g. the
+                // same relay re-added under a new nickname before the old
+                // entry was removed) — polling both would show the exact
+                // same room twice under two different names. Collapse to
+                // one entry per URL, preferring whichever is default, so
+                // each live room is attributed to exactly one nickname.
+                val relays = context.appSettingsStore.observe().first().relays
+                    .groupBy { it.url }
+                    .map { (_, entries) -> entries.firstOrNull { it.isDefault } ?: entries.first() }
+                liveRelaysById = relays.associateBy { it.id }
+                val stillConfigured = relays.map { it.id }.toSet()
+                liveRoomsByRelay = liveRoomsByRelay.filterKeys { it in stillConfigured }
+                hostedRoomId = context.relayIdentityStore.load().hostedRoomId
+                for (entry in relays) {
+                    launch {
+                        val rooms = relayDirectoryApi.listRooms(entry.url)
+                        liveRoomsByRelay = liveRoomsByRelay + (entry.id to rooms)
+                    }
+                }
             } else {
-                emptyList()
+                liveRoomsByRelay = emptyMap()
             }
             delay(5_000)
+        }
+    }
+    val liveRooms = remember(liveRoomsByRelay, liveRelaysById) {
+        liveRoomsByRelay.flatMap { (relayId, rooms) ->
+            val relay = liveRelaysById[relayId] ?: return@flatMap emptyList()
+            rooms.map { MergedRoom(relay, it) }
+        }
+    }
+
+    // Design spec ask: an accidental disconnect (lost power/wifi) should
+    // never kill a room out from under a guest — that's what the relay's
+    // own reconnect grace already protects. This is the deliberate
+    // counterpart: a host explicitly asking, from Home, to end a room right
+    // now. Works with or without a live RelayClient for it (see
+    // RelayDirectoryApi.closeRoom's server-side host-identity check).
+    fun closeHostedRoom(merged: MergedRoom) {
+        scope.launch {
+            val identity = context.relayIdentityStore.load()
+            val token = identity.reconnectToken ?: return@launch
+            val ok = relayDirectoryApi.closeRoom(merged.relay.url, merged.room.roomId, identity.peerId, token)
+            if (ok) {
+                context.relayIdentityStore.saveHostedRoomId(null)
+                hostedRoomId = null
+                liveRoomsByRelay = liveRoomsByRelay.mapValues { (_, rooms) ->
+                    rooms.filterNot { it.roomId == merged.room.roomId }
+                }
+            }
         }
     }
 
@@ -405,7 +474,7 @@ private fun AppRoot() {
                 ?: error("No movie or show library found on ${server.name}")
             val items = serverApi.fetchLibraryItems(firstSection.key)
             val ctx = LibraryContext(server, sections, firstSection, items)
-            val relayConfigured = !context.appSettingsStore.observe().first().relayUrl.isNullOrBlank()
+            val relayConfigured = context.appSettingsStore.observe().first().relays.isNotEmpty()
             if (relayConfigured) loadHome(server, sections) else AppState.RelaySetup(ctx)
         }.getOrElse { AppState.Error(it.message ?: "Something went wrong connecting to Plex") }
     }
@@ -450,9 +519,11 @@ private fun AppRoot() {
                 suggestions = current.suggestions,
                 liveRooms = liveRooms,
                 myRoomId = relayClient?.roomId?.collectAsState()?.value,
-                onSelectRoom = { room ->
+                hostedRoomId = hostedRoomId,
+                onEndSession = { merged -> closeHostedRoom(merged) },
+                onSelectRoom = { merged ->
                     scope.launch {
-                        val ratingKey = room.ratingKey
+                        val ratingKey = merged.room.ratingKey
                         val fetched = if (ratingKey == null) {
                             Result.failure(IllegalStateException("Room has no movie reference"))
                         } else {
@@ -463,7 +534,7 @@ private fun AppRoot() {
                             state = AppState.Error(fetched.exceptionOrNull()?.message ?: "Couldn't load that room's movie")
                             return@launch
                         }
-                        val relay = ensureRelayClient(RoomIntent.Join(room.roomId))
+                        val relay = ensureRelayClient(merged.relay.url, RoomIntent.Join(merged.room.roomId))
                         if (relay == null) {
                             state = AppState.Error("No relay configured")
                             return@launch
@@ -482,27 +553,23 @@ private fun AppRoot() {
                         state = if (resolved == ConnectionState.ROOM_NOT_FOUND) {
                             AppState.Error("That room just ended.")
                         } else {
-                            AppState.Lobby(current.server, detail, current, relay, room.hostName)
+                            AppState.Lobby(current.server, detail, current, relay, merged.room.hostName, merged.relay.nickname)
                         }
                     }
                 },
+                // Solo, always — resuming Continue Watching is never an
+                // implicit "start a room" action (it isn't Watch Together).
+                // Previously this unconditionally called ensureRelayClient
+                // whenever a relay was configured at all, which meant every
+                // resume created a real, publicly-listed room announcing
+                // "hosting" to the whole friend group's Home screen.
                 onResume = { item ->
                     scope.launch {
                         val fetched = runCatching {
                             PlexServerApi(current.server, clientIdentifier).fetchMovieDetail(item.ratingKey)
                         }
-                        val hostName = localAccount?.username ?: "Host"
                         state = fetched.fold(
-                            onSuccess = { detail ->
-                                val relay = ensureRelayClient(
-                                    RoomIntent.Create(title = item.title, thumb = item.thumb, ratingKey = item.ratingKey, hostName = hostName),
-                                )
-                                if (relay != null) {
-                                    AppState.Lobby(current.server, detail, current, relay, hostName)
-                                } else {
-                                    AppState.Player(current.server, detail, current, relay)
-                                }
-                            },
+                            onSuccess = { detail -> AppState.Player(current.server, detail, current, relay = null) },
                             onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                         )
                     }
@@ -710,10 +777,24 @@ private fun AppRoot() {
                 // relay configured (never disabled — a disabled control
                 // gives a couch user nothing to act on), routing to Settings
                 // with an inline hint instead.
+                // Design spec 09d: "Always the default. No prompt." — a
+                // long-press relay chooser (the documented escape hatch for
+                // hosting on a non-default relay) isn't built yet; hosting
+                // always targets settings.defaultRelay for now.
                 onWatchTogether = { targetRatingKey ->
                     scope.launch {
                         val hostName = localAccount?.username ?: "Host"
+                        val defaultRelay = context.appSettingsStore.observe().first().defaultRelay
+                        if (defaultRelay == null) {
+                            state = AppState.Settings(
+                                current.ctx,
+                                returnState = current,
+                                relayHint = "Add a relay to watch with friends.",
+                            )
+                            return@launch
+                        }
                         val relay = ensureRelayClient(
+                            defaultRelay.url,
                             RoomIntent.Create(
                                 title = current.movie.title,
                                 thumb = current.movie.thumb,
@@ -725,14 +806,16 @@ private fun AppRoot() {
                             state = AppState.Settings(
                                 current.ctx,
                                 returnState = current,
-                                relayHint = "Add a relay URL to watch with friends.",
+                                relayHint = "Add a relay to watch with friends.",
                             )
                         } else {
                             val fetched = runCatching {
                                 PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(targetRatingKey)
                             }
                             state = fetched.fold(
-                                onSuccess = { detail -> AppState.Lobby(current.ctx.server, detail, current, relay, hostName) },
+                                onSuccess = { detail ->
+                                    AppState.Lobby(current.ctx.server, detail, current, relay, hostName, defaultRelay.nickname)
+                                },
                                 onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                             )
                         }
@@ -811,28 +894,16 @@ private fun AppRoot() {
                 showTitle = current.show.title,
                 seasonTitle = current.season.title,
                 episodes = current.episodes,
+                // Solo, always — see onResume's matching comment above.
+                // Picking an episode from the list is playback, not Watch
+                // Together.
                 onSelect = { episode ->
                     scope.launch {
                         val fetched = runCatching {
                             PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
                         }
-                        val hostName = localAccount?.username ?: "Host"
                         state = fetched.fold(
-                            onSuccess = { detail ->
-                                val relay = ensureRelayClient(
-                                    RoomIntent.Create(
-                                        title = "${current.show.title}: ${episode.title}",
-                                        thumb = episode.thumb,
-                                        ratingKey = episode.ratingKey,
-                                        hostName = hostName,
-                                    ),
-                                )
-                                if (relay != null) {
-                                    AppState.Lobby(current.ctx.server, detail, current, relay, hostName)
-                                } else {
-                                    AppState.Player(current.ctx.server, detail, current, relay)
-                                }
-                            },
+                            onSuccess = { detail -> AppState.Player(current.ctx.server, detail, current, relay = null) },
                             onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                         )
                     }
@@ -848,6 +919,7 @@ private fun AppRoot() {
                 localUsername = localAccount?.username ?: "You",
                 localAvatarUrl = localAccount?.thumb,
                 hostName = current.hostName,
+                relayNickname = current.relayNickname,
                 relay = current.relay,
                 onStart = { state = AppState.Player(current.server, current.detail, current.returnState, current.relay) },
                 onBack = {

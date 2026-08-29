@@ -48,7 +48,10 @@ import com.moviesshumtimes.tv.sync.relayHttpUrl
 import com.moviesshumtimes.tv.sync.toChatMessage
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.common.RelayStatusDot
+import com.moviesshumtimes.tv.ui.common.RelayStatusLine
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
+import com.moviesshumtimes.tv.ui.common.rememberRelayStatus
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
@@ -64,6 +67,10 @@ import java.net.URLEncoder
 
 private const val PRESENCE_INTERVAL_MS = 3_000L
 private const val ROSTER_STALE_MS = PRESENCE_INTERVAL_MS * 3
+// Mirrors the relay's own MAX_DEVICE_SEATS default (relay/server.js) —
+// purely a UI cue for when to stop showing a trailing empty seat; the
+// server is the actual source of truth on room capacity.
+private const val ROOM_SEAT_CAP = 8
 
 private data class RosterEntry(val username: String, val avatarUrl: String?, val lastSeenMs: Long)
 
@@ -82,11 +89,14 @@ fun LobbyScreen(
     // it comes from that room's RelayRoomSummary, since a guest otherwise
     // has no way to know who's hosting.
     hostName: String,
+    // Design spec 09d — shown next to the title with the connection dot.
+    relayNickname: String,
     relay: RelayClient,
     onStart: () -> Unit,
     onBack: () -> Unit,
 ) {
     val connectionState by relay.connectionState.collectAsState()
+    val relayStatus = rememberRelayStatus(connectionState)
     val mySeatIndex by relay.seatIndex.collectAsState()
     val roomId by relay.roomId.collectAsState()
     val isHost = mySeatIndex == 0
@@ -167,19 +177,22 @@ fun LobbyScreen(
                 WatchTogetherIcon()
                 Text(detail.title, style = ShumTypography.displaySmall, color = AppWhite)
             }
-            Text(
-                "Waiting to watch together",
-                color = AppWhite,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.padding(top = 8.dp, bottom = 48.dp),
-            )
+            ) {
+                RelayStatusDot(status = relayStatus)
+                Text(relayNickname, color = AppWhite.copy(alpha = 0.7f))
+            }
 
-            // Design spec 09b: a fixed 8-seat room, not an open-ended list —
-            // seat 0 is always the host, the next 3 render individually
-            // (present or empty-dashed), and anyone beyond that collapses
-            // into a muted "+N" rather than letting the row grow unbounded.
-            // A guest's own presence isn't in `roster` (LobbyScreen only
-            // tracks *others*), so it's prepended here to occupy one of the
-            // non-host seats instead of being displayed as the host.
+            // Host seat, then one card per filled seat, then exactly one
+            // trailing empty seat as the "next spot" to fill — not a fixed
+            // bank of slots up front. The empty seat simply doesn't render
+            // once the room is at capacity. A guest's own presence isn't in
+            // `roster` (LobbyScreen only tracks *others*), so it's prepended
+            // here to occupy one of the non-host seats instead of being
+            // displayed as the host.
             val others = remember(roster, isHost, localUsername, localAvatarUrl) {
                 buildList {
                     if (!isHost) add(RosterEntry(localUsername, localAvatarUrl, Long.MAX_VALUE))
@@ -196,17 +209,12 @@ fun LobbyScreen(
                     avatarUrl = if (isHost) localAvatarUrl else null,
                     subtitle = "host",
                 )
-                repeat(3) { index ->
-                    val entry = others.getOrNull(index)
-                    if (entry != null) {
-                        LobbyPersonCard(name = entry.username, avatarUrl = entry.avatarUrl)
-                    } else {
-                        EmptySeat()
-                    }
+                for (entry in others) {
+                    LobbyPersonCard(name = entry.username, avatarUrl = entry.avatarUrl)
                 }
-                val overflow = (others.size - 3).coerceAtLeast(0)
-                if (overflow > 0) {
-                    Text("+$overflow", color = AppWhite.copy(alpha = 0.35f), style = ShumTypography.headlineMedium)
+                // +1 for the host seat, which isn't in `others`.
+                if (others.size + 1 < ROOM_SEAT_CAP) {
+                    EmptySeat()
                 }
             }
 
@@ -231,6 +239,19 @@ fun LobbyScreen(
             corner = chatOverlayCorner,
             modifier = Modifier.align(chatAlignment).fillMaxWidth(0.5f).padding(24.dp),
         )
+
+        // Design spec 09d: pinned to the bottom, never a modal, never
+        // blocking Play/Watch Together/Start. Host-on-another-relay isn't
+        // wired up yet (needs the relay list threaded down from
+        // MainActivity) — Retry re-attempts the same relay immediately.
+        Box(modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(0.6f).padding(32.dp)) {
+            RelayStatusLine(
+                status = relayStatus,
+                relayNickname = relayNickname,
+                onRetry = { relay.retryNow() },
+                onHostOnAnother = null,
+            )
+        }
 
         if (showChatModal) {
             ChatQrModal(relayUrl = relay.relayUrl, roomId = roomId, defaultName = localUsername, onDismiss = { showChatModal = false })

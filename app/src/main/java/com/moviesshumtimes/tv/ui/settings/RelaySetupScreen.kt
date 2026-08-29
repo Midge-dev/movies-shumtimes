@@ -30,6 +30,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.moviesshumtimes.tv.data.pairing.PairingServer
+import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
@@ -55,6 +56,11 @@ fun RelaySetupScreen(onDone: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var relayUrl by remember { mutableStateOf("") }
+    // Manual entry has no nickname field of its own (typing two fields on a
+    // D-pad remote is painful) — "My relay" is the default, same as the
+    // one-time migration for anyone upgrading from the old single-URL
+    // setting. Phone-pairing captures a real nickname (see PairingServer).
+    var relayNickname by remember { mutableStateOf("My relay") }
 
     var pairingServer by remember { mutableStateOf<PairingServer?>(null) }
     var pairingUrl by remember { mutableStateOf<String?>(null) }
@@ -65,7 +71,13 @@ fun RelaySetupScreen(onDone: () -> Unit) {
     suspend fun saveAndContinue() {
         val store = context.appSettingsStore
         val current = store.observe().first()
-        store.save(current.copy(relayUrl = relayUrl.trim().ifBlank { null }))
+        val url = relayUrl.trim()
+        val relays = if (url.isBlank()) {
+            emptyList()
+        } else {
+            listOf(RelayEntry(id = java.util.UUID.randomUUID().toString(), nickname = relayNickname.trim().ifBlank { "My relay" }, url = url, isDefault = true))
+        }
+        store.save(current.copy(relays = relays))
         onDone()
     }
 
@@ -112,9 +124,10 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                     onClick = {
                         pairingError = null
                         val server = PairingServer(
-                            onSubmitted = { value ->
+                            onSubmitted = { nickname, url ->
                                 Handler(Looper.getMainLooper()).post {
-                                    relayUrl = value
+                                    relayNickname = nickname
+                                    relayUrl = url
                                     pairingServer?.stop()
                                     pairingServer = null
                                     pairingUrl = null

@@ -7,6 +7,9 @@ import com.russhwolf.settings.coroutines.getIntFlow
 import com.russhwolf.settings.coroutines.getStringOrNullFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 // Design spec section 07: which screen corner the chat toast stack anchors
 // to. Stack growth direction and text alignment both derive from this in
@@ -14,14 +17,27 @@ import kotlinx.coroutines.flow.combine
 // follows the horizontal edge (START = left, END = right).
 enum class ChatOverlayCorner { TOP_START, TOP_END, BOTTOM_START, BOTTOM_END }
 
+// Design spec 09d: relays are now a list, not one URL — different friends in
+// a larger group may each run their own (cloud or home-hosted, it doesn't
+// matter which). `isDefault` picks which one Watch Together hosts a new room
+// on; at most one entry should have it set (SettingsStore enforces this on
+// save, see below).
+@Serializable
+data class RelayEntry(
+    val id: String,
+    val nickname: String,
+    val url: String,
+    val isDefault: Boolean = false,
+)
+
 data class AppSettings(
-    // null until configured — no baked-in/placeholder fallback, since one
-    // doesn't generalize once this app is shared beyond one household's
-    // relay. RelaySetupScreen prompts for this right after first login;
-    // MainActivity treats null as "no watch-together relay" and skips
-    // straight to solo playback rather than showing a Lobby with no one to
-    // wait for.
-    val relayUrl: String? = null,
+    // Empty until the user adds one — no baked-in/placeholder fallback,
+    // since one doesn't generalize once this app is shared beyond one
+    // household's relay. RelaySetupScreen prompts for the first one right
+    // after login; MainActivity treats an empty list as "no watch-together
+    // relay" and skips straight to solo playback rather than showing a
+    // Lobby with no one to wait for.
+    val relays: List<RelayEntry> = emptyList(),
     val maxVideoBitrateKbps: Int = DEFAULT_MAX_BITRATE_KBPS,
     val forceBurnSubtitles: Boolean = false,
     // Watch-together chat still connects and sends/receives normally when
@@ -49,20 +65,29 @@ data class AppSettings(
     }
 }
 
+// Design spec 09d: "Always the default. No prompt." — Watch Together hosts
+// on whichever relay is flagged default, falling back to the first
+// configured relay if none is explicitly flagged (defensive; save() below
+// keeps exactly one flagged once there's at least one entry).
+val AppSettings.defaultRelay: RelayEntry?
+    get() = relays.firstOrNull { it.isDefault } ?: relays.firstOrNull()
+
 data class BitratePreset(val kbps: Int, val label: String)
 
-private const val RELAY_URL_KEY = "relay_url"
+private const val RELAY_URL_KEY = "relay_url" // legacy — see migration in observe()
+private const val RELAY_ENTRIES_KEY = "relay_entries"
 private const val MAX_BITRATE_KEY = "max_video_bitrate_kbps"
 private const val FORCE_BURN_KEY = "force_burn_subtitles"
 private const val SHOW_CHAT_OVERLAY_KEY = "show_chat_overlay"
 private const val CHAT_OVERLAY_CORNER_KEY = "chat_overlay_corner"
 private const val SELECTED_SERVER_ID_KEY = "selected_server_id"
 
-// combine() only has named overloads up to 5 flows, so the six settings
-// fields are combined in two groups of four/three (see observe() below)
-// rather than one flat call.
+private val relayListJson = Json { ignoreUnknownKeys = true }
+
+// combine() only has named overloads up to 5 flows, so the settings fields
+// are combined in two groups (see observe() below) rather than one flat
+// call.
 private data class BaseSettings(
-    val relayUrl: String?,
     val maxBitrateKbps: Int,
     val forceBurnSubtitles: Boolean,
     val showChatOverlay: Boolean,
@@ -77,20 +102,20 @@ class SettingsStore(private val settings: ObservableSettings) {
     @OptIn(ExperimentalSettingsApi::class)
     fun observe(): Flow<AppSettings> {
         val base = combine(
-            settings.getStringOrNullFlow(RELAY_URL_KEY),
             settings.getIntFlow(MAX_BITRATE_KEY, AppSettings.DEFAULT_MAX_BITRATE_KBPS),
             settings.getBooleanFlow(FORCE_BURN_KEY, false),
             settings.getBooleanFlow(SHOW_CHAT_OVERLAY_KEY, true),
-        ) { relayUrl, maxBitrateKbps, forceBurnSubtitles, showChatOverlay ->
-            BaseSettings(relayUrl, maxBitrateKbps, forceBurnSubtitles, showChatOverlay)
+        ) { maxBitrateKbps, forceBurnSubtitles, showChatOverlay ->
+            BaseSettings(maxBitrateKbps, forceBurnSubtitles, showChatOverlay)
         }
         return combine(
             base,
             settings.getStringOrNullFlow(SELECTED_SERVER_ID_KEY),
             settings.getStringOrNullFlow(CHAT_OVERLAY_CORNER_KEY),
-        ) { b, selectedServerId, cornerName ->
+            settings.getStringOrNullFlow(RELAY_ENTRIES_KEY),
+        ) { b, selectedServerId, cornerName, relayEntriesJson ->
             AppSettings(
-                relayUrl = b.relayUrl,
+                relays = decodeRelays(relayEntriesJson),
                 maxVideoBitrateKbps = b.maxBitrateKbps,
                 forceBurnSubtitles = b.forceBurnSubtitles,
                 showChatOverlay = b.showChatOverlay,
@@ -98,14 +123,42 @@ class SettingsStore(private val settings: ObservableSettings) {
                     ?: ChatOverlayCorner.BOTTOM_END,
                 selectedServerId = selectedServerId,
             )
-        }
+        }.map { migrateLegacyRelayUrlIfNeeded(it) }
+    }
+
+    // One-time migration: an install that only ever had the old single
+    // relay_url key gets it wrapped into a single default-nicknamed entry,
+    // written through immediately so this only runs once. A fresh install
+    // (both keys absent) just gets an empty list, same as before.
+    private fun decodeRelays(json: String?): List<RelayEntry> {
+        if (json.isNullOrBlank()) return emptyList()
+        return runCatching { relayListJson.decodeFromString<List<RelayEntry>>(json) }.getOrDefault(emptyList())
+    }
+
+    private suspend fun migrateLegacyRelayUrlIfNeeded(current: AppSettings): AppSettings {
+        if (current.relays.isNotEmpty()) return current
+        val legacyUrl = settings.getStringOrNull(RELAY_URL_KEY)?.takeIf { it.isNotBlank() } ?: return current
+        val migrated = current.copy(
+            relays = listOf(RelayEntry(id = randomRelayId(), nickname = "My relay", url = legacyUrl, isDefault = true)),
+        )
+        save(migrated)
+        settings.remove(RELAY_URL_KEY)
+        return migrated
     }
 
     suspend fun save(appSettings: AppSettings) {
-        if (appSettings.relayUrl != null) {
-            settings.putString(RELAY_URL_KEY, appSettings.relayUrl)
+        // Exactly one entry (the first flagged, or the first entry if none
+        // are flagged) is ever persisted as default — defends against a
+        // caller accidentally producing two "isDefault = true" rows.
+        val normalizedRelays = run {
+            val defaultId = appSettings.relays.firstOrNull { it.isDefault }?.id
+                ?: appSettings.relays.firstOrNull()?.id
+            appSettings.relays.map { it.copy(isDefault = it.id == defaultId) }
+        }
+        if (normalizedRelays.isNotEmpty()) {
+            settings.putString(RELAY_ENTRIES_KEY, relayListJson.encodeToString(normalizedRelays))
         } else {
-            settings.remove(RELAY_URL_KEY)
+            settings.remove(RELAY_ENTRIES_KEY)
         }
         settings.putInt(MAX_BITRATE_KEY, appSettings.maxVideoBitrateKbps)
         settings.putBoolean(FORCE_BURN_KEY, appSettings.forceBurnSubtitles)
@@ -118,3 +171,5 @@ class SettingsStore(private val settings: ObservableSettings) {
         }
     }
 }
+
+private fun randomRelayId(): String = (1..16).map { ('a'..'z').random() }.joinToString("")

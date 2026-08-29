@@ -59,11 +59,13 @@ import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.sync.RelayRoomSummary
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumCard
 import com.moviesshumtimes.tv.ui.kit.ShumCardContainer
+import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppOnSurfaceVariant
@@ -86,12 +88,18 @@ fun HomeScreen(
     onDeck: List<PlexOnDeckItem>,
     recentlyAdded: List<PlexLibraryItem>,
     suggestions: List<PlexOnDeckItem>,
-    liveRooms: List<RelayRoomSummary>,
+    liveRooms: List<MergedRoom>,
     // Which room (if any) this device currently occupies — marks that
     // room's card Rejoin instead of Join. Null whenever not in a room at
     // all (including "not connected to any relay").
     myRoomId: String?,
-    onSelectRoom: (RelayRoomSummary) -> Unit,
+    // The room this device most recently hosted — independent of myRoomId,
+    // since it stays populated even after the live connection to it is
+    // gone (see MainActivity's hostedRoomId/RelayIdentity.hostedRoomId).
+    // Surfaces an "End session" control when that room is still live.
+    hostedRoomId: String?,
+    onEndSession: (MergedRoom) -> Unit,
+    onSelectRoom: (MergedRoom) -> Unit,
     onResume: (PlexOnDeckItem) -> Unit,
     onRemove: (PlexOnDeckItem) -> Unit,
     onSelectRecentlyAdded: (PlexLibraryItem) -> Unit,
@@ -148,6 +156,8 @@ fun HomeScreen(
                 server = server,
                 rooms = liveRooms,
                 myRoomId = myRoomId,
+                hostedRoomId = hostedRoomId,
+                onEndSession = onEndSession,
                 onSelectRoom = onSelectRoom,
                 firstCardFocusRequester = if (watchTogetherGetsFocus) firstItemFocus else null,
             )
@@ -245,19 +255,29 @@ private fun <T> HomeRow(
 // D-pad scrolling), the tile is a visual/paging shortcut, not a hard cutoff.
 private const val VISIBLE_ROOM_CARDS = 3
 
+// Design spec 09d: a room paired with which configured relay it came from —
+// merged client-side, since the relay itself has no notion of any other
+// relay. The same movie live on two relays is two distinct MergedRooms
+// (different relay.id), not deduplicated by title.
+data class MergedRoom(val relay: RelayEntry, val room: RelayRoomSummary)
+
 // Self-hides entirely when no room is live — never an empty state, never a
 // placeholder, same convention as every other row on this screen.
 @Composable
 private fun WatchTogetherRow(
     server: PlexServer,
-    rooms: List<RelayRoomSummary>,
+    rooms: List<MergedRoom>,
     myRoomId: String?,
-    onSelectRoom: (RelayRoomSummary) -> Unit,
+    hostedRoomId: String?,
+    onEndSession: (MergedRoom) -> Unit,
+    onSelectRoom: (MergedRoom) -> Unit,
     firstCardFocusRequester: FocusRequester?,
 ) {
     if (rooms.isEmpty()) return
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val relayCount = remember(rooms) { rooms.map { it.relay.id }.distinct().size }
+    val hostedRoom = rooms.firstOrNull { it.room.roomId == hostedRoomId }
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -267,7 +287,8 @@ private fun WatchTogetherRow(
             Box(modifier = Modifier.width(8.dp).height(8.dp).background(NeonPurple, shape = RoundedCornerShape(50)))
             Text(text = "Watch Together", style = ShumTypography.titleLarge)
             Text(
-                text = "${rooms.size} room${if (rooms.size == 1) "" else "s"} live",
+                text = "${rooms.size} room${if (rooms.size == 1) "" else "s"} live" +
+                    " · $relayCount relay${if (relayCount == 1) "" else "s"}",
                 color = AppOnSurfaceVariant,
             )
         }
@@ -276,12 +297,21 @@ private fun WatchTogetherRow(
             contentPadding = PaddingValues(horizontal = 32.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            itemsIndexed(rooms, key = { _, room -> room.roomId }) { index, room ->
+            // A separate tile, not folded into hostedRoom's own RoomCard —
+            // that card's click already means Rejoin, and ending the room
+            // you're hosting is a distinct, more consequential action that
+            // deserves its own target rather than overloading a gesture.
+            if (hostedRoom != null) {
+                item(key = "end-session:${hostedRoom.room.roomId}") {
+                    EndSessionTile(title = hostedRoom.room.title, onEndSession = { onEndSession(hostedRoom) })
+                }
+            }
+            itemsIndexed(rooms, key = { _, merged -> "${merged.relay.id}:${merged.room.roomId}" }) { index, merged ->
                 RoomCard(
                     server = server,
-                    room = room,
-                    isMine = room.roomId == myRoomId,
-                    onClick = { onSelectRoom(room) },
+                    merged = merged,
+                    isMine = merged.room.roomId == myRoomId,
+                    onClick = { onSelectRoom(merged) },
                     modifier = if (index == 0 && firstCardFocusRequester != null) {
                         Modifier.focusRequester(firstCardFocusRequester)
                     } else {
@@ -304,11 +334,12 @@ private fun WatchTogetherRow(
 @Composable
 private fun RoomCard(
     server: PlexServer,
-    room: RelayRoomSummary,
+    merged: MergedRoom,
     isMine: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val room = merged.room
     val full = room.occupants >= room.maxSeats
     val label = when {
         full -> "Full"
@@ -368,9 +399,39 @@ private fun RoomCard(
                     text = "${room.occupants} of ${room.maxSeats} watching",
                     color = AppOnSurfaceVariant,
                 )
+                // Design spec 09d: one line, dot + "Available on <nickname>"
+                // — the only new content a merged multi-relay view adds to
+                // an otherwise unchanged 09b card.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(modifier = Modifier.width(6.dp).height(6.dp).background(NeonPurple, shape = RoundedCornerShape(50)))
+                    Text(text = "Available on ${merged.relay.nickname}", color = AppOnSurfaceVariant)
+                }
             }
         },
     )
+}
+
+// A deliberate, always-visible control for the room this device hosts — not
+// gated behind focus or a long-press, since ending a session other people
+// may still be watching deserves a plainly-labeled target, not a hidden
+// gesture. A single press ends it outright, no confirm step: same "removing
+// asks nothing" convention as Settings' relay Remove, and this control only
+// exists in the first place because the user asked for a manual way to do
+// exactly this.
+@Composable
+private fun EndSessionTile(title: String, onEndSession: () -> Unit, modifier: Modifier = Modifier) {
+    ShumOutlinedButton(onClick = onEndSession, modifier = modifier.width(220.dp).height(104.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+            Text(text = "End session", textAlign = TextAlign.Center)
+            Text(
+                text = "You're hosting \"$title\"",
+                color = AppOnSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
 }
 
 @Composable

@@ -59,6 +59,12 @@ class RelayClient(
     private var identity: RelayIdentity,
     private val scope: CoroutineScope,
     private val onIdentityUpdated: (RelayIdentity) -> Unit = {},
+    // Fired whenever a "welcome" lands us in seat 0 — true host, whether
+    // this connection just created the room or reclaimed it after a drop.
+    // Lets the caller persist "the room I'm hosting" independent of this
+    // client's own lifetime, so Home can still offer to end it long after
+    // this RelayClient (and its live socket) has been torn down.
+    private val onHostedRoomIdUpdated: (String) -> Unit = {},
 ) {
     private val client = HttpClient { install(WebSockets) }
     private val json = Json { ignoreUnknownKeys = true }
@@ -161,8 +167,11 @@ class RelayClient(
                     identity = identity.copy(reconnectToken = newToken)
                     onIdentityUpdated(identity)
                 }
-                _seatIndex.value = root["seatIndex"]?.jsonPrimitive?.intOrNull
-                root["roomId"]?.jsonPrimitive?.contentOrNull?.let { _roomId.value = it }
+                val seat = root["seatIndex"]?.jsonPrimitive?.intOrNull
+                _seatIndex.value = seat
+                val newRoomId = root["roomId"]?.jsonPrimitive?.contentOrNull
+                newRoomId?.let { _roomId.value = it }
+                if (seat == 0 && newRoomId != null) onHostedRoomIdUpdated(newRoomId)
                 _connectionState.value = ConnectionState.CONNECTED
             }
             "full" -> {
@@ -196,6 +205,17 @@ class RelayClient(
             backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
             if (!manuallyDisconnected) attemptConnect()
         }
+    }
+
+    // Design spec 09d's Lobby failure state ("Can't reach {relay}") ->
+    // Retry — cancels whatever backoff wait is pending and attempts right
+    // now instead of making the user wait out the current delay too.
+    fun retryNow() {
+        if (manuallyDisconnected) return
+        reconnectJob?.cancel()
+        sessionJob?.cancel()
+        backoffMs = INITIAL_BACKOFF_MS
+        attemptConnect()
     }
 
     fun send(event: RelayEvent) {

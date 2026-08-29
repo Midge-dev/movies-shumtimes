@@ -252,6 +252,36 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(list));
     return;
   }
+  // POST /rooms/:roomId/close — lets a host end their own room on demand
+  // (e.g. from Home, well after the app's live socket to it is gone) without
+  // needing a live connection: proof of "you're really the host" is the same
+  // peerId + reconnectToken a reconnect would present, checked against seat
+  // 0. Deliberate close, not the accidental-disconnect path — that one still
+  // goes through the normal reconnect grace in releaseConnection below, so
+  // losing power/wifi never silently ends a room out from under a guest.
+  const closeMatch = req.method === 'POST' && pathname.match(/^\/rooms\/([^/]+)\/close$/);
+  if (closeMatch) {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let parsed;
+      try { parsed = JSON.parse(body); } catch { parsed = null; }
+      const room = rooms.get(closeMatch[1]);
+      const hostSeat = room && room.seats[0];
+      const authorized = hostSeat && parsed &&
+        hostSeat.peerId === parsed.peerId && hostSeat.reconnectToken === parsed.reconnectToken;
+      if (authorized) {
+        if (hostSeat.ws) { try { hostSeat.ws.close(); } catch { /* already gone */ } }
+        rooms.delete(room.roomId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false }));
+      }
+    });
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('shumtimes relay ok\n');
 });
