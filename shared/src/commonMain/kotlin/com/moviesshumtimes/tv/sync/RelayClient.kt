@@ -63,8 +63,11 @@ class RelayClient(
     // this connection just created the room or reclaimed it after a drop.
     // Lets the caller persist "the room I'm hosting" independent of this
     // client's own lifetime, so Home can still offer to end it long after
-    // this RelayClient (and its live socket) has been torn down.
-    private val onHostedRoomIdUpdated: (String) -> Unit = {},
+    // this RelayClient (and its live socket) has been torn down. Carries
+    // this room's own host-seat token alongside its id — needed to close
+    // this specific room later, since a device hosting multiple rooms holds
+    // a different token per room.
+    private val onHostedRoomIdUpdated: (roomId: String, reconnectToken: String) -> Unit = { _, _ -> },
 ) {
     private val client = HttpClient { install(WebSockets) }
     private val json = Json { ignoreUnknownKeys = true }
@@ -171,7 +174,9 @@ class RelayClient(
                 _seatIndex.value = seat
                 val newRoomId = root["roomId"]?.jsonPrimitive?.contentOrNull
                 newRoomId?.let { _roomId.value = it }
-                if (seat == 0 && newRoomId != null) onHostedRoomIdUpdated(newRoomId)
+                if (seat == 0 && newRoomId != null) {
+                    identity.reconnectToken?.let { onHostedRoomIdUpdated(newRoomId, it) }
+                }
                 _connectionState.value = ConnectionState.CONNECTED
             }
             "full" -> {

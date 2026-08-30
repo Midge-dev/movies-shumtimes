@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -93,11 +94,11 @@ fun HomeScreen(
     // room's card Rejoin instead of Join. Null whenever not in a room at
     // all (including "not connected to any relay").
     myRoomId: String?,
-    // The room this device most recently hosted — independent of myRoomId,
-    // since it stays populated even after the live connection to it is
-    // gone (see MainActivity's hostedRoomId/RelayIdentity.hostedRoomId).
-    // Surfaces an "End session" control when that room is still live.
-    hostedRoomId: String?,
+    // Every room this device currently hosts — independent of myRoomId,
+    // since each stays populated even after the live connection to it is
+    // gone (see MainActivity's hostedRoomIds/RelayIdentity.hostedRooms).
+    // Surfaces one "End session" control per hosted room that's still live.
+    hostedRoomIds: Set<String>,
     onEndSession: (MergedRoom) -> Unit,
     onSelectRoom: (MergedRoom) -> Unit,
     onResume: (PlexOnDeckItem) -> Unit,
@@ -156,7 +157,7 @@ fun HomeScreen(
                 server = server,
                 rooms = liveRooms,
                 myRoomId = myRoomId,
-                hostedRoomId = hostedRoomId,
+                hostedRoomIds = hostedRoomIds,
                 onEndSession = onEndSession,
                 onSelectRoom = onSelectRoom,
                 firstCardFocusRequester = if (watchTogetherGetsFocus) firstItemFocus else null,
@@ -268,7 +269,7 @@ private fun WatchTogetherRow(
     server: PlexServer,
     rooms: List<MergedRoom>,
     myRoomId: String?,
-    hostedRoomId: String?,
+    hostedRoomIds: Set<String>,
     onEndSession: (MergedRoom) -> Unit,
     onSelectRoom: (MergedRoom) -> Unit,
     firstCardFocusRequester: FocusRequester?,
@@ -277,7 +278,7 @@ private fun WatchTogetherRow(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val relayCount = remember(rooms) { rooms.map { it.relay.id }.distinct().size }
-    val hostedRoom = rooms.firstOrNull { it.room.roomId == hostedRoomId }
+    val hostedRooms = rooms.filter { it.room.roomId in hostedRoomIds }
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -297,14 +298,14 @@ private fun WatchTogetherRow(
             contentPadding = PaddingValues(horizontal = 32.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // A separate tile, not folded into hostedRoom's own RoomCard —
-            // that card's click already means Rejoin, and ending the room
+            // Separate tiles, not folded into each hostedRoom's own RoomCard
+            // — that card's click already means Rejoin, and ending a room
             // you're hosting is a distinct, more consequential action that
-            // deserves its own target rather than overloading a gesture.
-            if (hostedRoom != null) {
-                item(key = "end-session:${hostedRoom.room.roomId}") {
-                    EndSessionTile(title = hostedRoom.room.title, onEndSession = { onEndSession(hostedRoom) })
-                }
+            // deserves its own target rather than overloading a gesture. One
+            // tile per room this device currently hosts, since a device can
+            // host more than one room at once (e.g. across different relays).
+            items(hostedRooms, key = { "end-session:${it.room.roomId}" }) { hostedRoom ->
+                EndSessionTile(title = hostedRoom.room.title, onEndSession = { onEndSession(hostedRoom) })
             }
             itemsIndexed(rooms, key = { _, merged -> "${merged.relay.id}:${merged.room.roomId}" }) { index, merged ->
                 RoomCard(
@@ -420,11 +421,12 @@ private fun RoomCard(
 // exactly this.
 @Composable
 private fun EndSessionTile(title: String, onEndSession: () -> Unit, modifier: Modifier = Modifier) {
-    ShumOutlinedButton(onClick = onEndSession, modifier = modifier.width(220.dp).height(104.dp)) {
+    ShumOutlinedButton(onClick = onEndSession, modifier = modifier.width(168.dp).height(64.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            Text(text = "End session", textAlign = TextAlign.Center)
+            Text(text = "End session", style = ShumTypography.bodyLarge, textAlign = TextAlign.Center)
             Text(
-                text = "You're hosting \"$title\"",
+                text = "\"$title\"",
+                style = ShumTypography.bodyLarge.copy(fontSize = ShumTypography.bodyLarge.fontSize * 0.8f),
                 color = AppOnSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

@@ -259,7 +259,9 @@ private fun AppRoot() {
                 relayIdentity = updated
                 updated.reconnectToken?.let { context.relayIdentityStore.saveReconnectToken(it) }
             },
-            onHostedRoomIdUpdated = { hostedId -> context.relayIdentityStore.saveHostedRoomId(hostedId) },
+            onHostedRoomIdUpdated = { hostedId, token ->
+                context.relayIdentityStore.addHostedRoom(relayUrl, hostedId, token)
+            },
         )
         newClient.connect(intent)
         relayClient = newClient
@@ -286,12 +288,12 @@ private fun AppRoot() {
     // the row").
     var liveRoomsByRelay by remember { mutableStateOf<Map<String, List<RelayRoomSummary>>>(emptyMap()) }
     var liveRelaysById by remember { mutableStateOf<Map<String, RelayEntry>>(emptyMap()) }
-    // The room this device most recently hosted (seat 0), independent of
-    // whether a live RelayClient still exists for it — see RelayIdentity's
-    // hostedRoomId. Drives Home's "End session" control, which has to work
-    // even after Lobby/Player's onBack/onExit has already torn the socket
-    // down.
-    var hostedRoomId by remember { mutableStateOf<String?>(null) }
+    // Every room this device currently hosts (seat 0), independent of
+    // whether a live RelayClient still exists for any of them — see
+    // RelayIdentity.hostedRooms. Drives Home's "End session" controls, one
+    // per hosted room, which have to work even after Lobby/Player's
+    // onBack/onExit has already torn the socket down.
+    var hostedRoomIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val relayDirectoryApi = remember { RelayDirectoryApi() }
     LaunchedEffect(Unit) {
         while (true) {
@@ -308,7 +310,7 @@ private fun AppRoot() {
                 liveRelaysById = relays.associateBy { it.id }
                 val stillConfigured = relays.map { it.id }.toSet()
                 liveRoomsByRelay = liveRoomsByRelay.filterKeys { it in stillConfigured }
-                hostedRoomId = context.relayIdentityStore.load().hostedRoomId
+                hostedRoomIds = context.relayIdentityStore.load().hostedRooms.map { it.roomId }.toSet()
                 for (entry in relays) {
                     launch {
                         val rooms = relayDirectoryApi.listRooms(entry.url)
@@ -337,11 +339,11 @@ private fun AppRoot() {
     fun closeHostedRoom(merged: MergedRoom) {
         scope.launch {
             val identity = context.relayIdentityStore.load()
-            val token = identity.reconnectToken ?: return@launch
-            val ok = relayDirectoryApi.closeRoom(merged.relay.url, merged.room.roomId, identity.peerId, token)
+            val hosted = identity.hostedRooms.firstOrNull { it.roomId == merged.room.roomId } ?: return@launch
+            val ok = relayDirectoryApi.closeRoom(merged.relay.url, merged.room.roomId, identity.peerId, hosted.reconnectToken)
             if (ok) {
-                context.relayIdentityStore.saveHostedRoomId(null)
-                hostedRoomId = null
+                context.relayIdentityStore.removeHostedRoom(merged.room.roomId)
+                hostedRoomIds = hostedRoomIds - merged.room.roomId
                 liveRoomsByRelay = liveRoomsByRelay.mapValues { (_, rooms) ->
                     rooms.filterNot { it.roomId == merged.room.roomId }
                 }
@@ -519,7 +521,7 @@ private fun AppRoot() {
                 suggestions = current.suggestions,
                 liveRooms = liveRooms,
                 myRoomId = relayClient?.roomId?.collectAsState()?.value,
-                hostedRoomId = hostedRoomId,
+                hostedRoomIds = hostedRoomIds,
                 onEndSession = { merged -> closeHostedRoom(merged) },
                 onSelectRoom = { merged ->
                     scope.launch {
