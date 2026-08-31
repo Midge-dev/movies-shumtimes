@@ -15,10 +15,6 @@ data class PlexResource(
     val name: String,
     val provides: String = "",
     val owned: Boolean = false,
-    // Plex's stable per-server machine ID — distinct from the app's own
-    // client identifier passed into PlexResourcesApi's constructor. Used to
-    // remember a user's explicit server choice across resource re-fetches,
-    // since connection URIs/tokens can change but this doesn't.
     @SerialName("clientIdentifier") val machineIdentifier: String = "",
     val accessToken: String? = null,
     val connections: List<PlexConnection> = emptyList(),
@@ -26,42 +22,23 @@ data class PlexResource(
 
 data class PlexServer(val name: String, val baseUrl: String, val accessToken: String)
 
-// type is "movie" or "show" — every other Plex library (Anime, Stand-up
-// Comedy, etc.) is really just a custom-named library of one of those two
-// underlying types.
 @Serializable
 data class PlexSection(val key: String, val title: String, val type: String = "")
 
 @Serializable
 data class PlexTag(val tag: String)
 
-// A top-level browsable item in a section grid — a movie in a "movie"
-// section, or a show in a "show" section. Same JSON shape either way.
 @Serializable
 data class PlexLibraryItem(
     val ratingKey: String,
-    // "movie" or "show" — absent on older responses that predate this field
-    // being captured, but always present from Plex itself. Lets a
-    // Home-sourced item (Recently Added / Suggestions) resolve isShow
-    // without a ctx.selectedSection to infer it from.
     val type: String? = null,
     val title: String,
-    // Only meaningful for type == "season" — /library/recentlyAdded surfaces
-    // newly-added TV content at season granularity ("Season 14"), and
-    // parentTitle/parentRatingKey are the actual show's name/ratingKey Plex
-    // attaches to a season item, used to route taps to the show's own
-    // detail screen instead of the season (which has no detail screen of
-    // its own in this app). Confirmed against a real server: recentlyAdded
-    // genuinely returns season-level items, not the show itself.
     val parentTitle: String? = null,
     val parentRatingKey: String? = null,
     val year: Int? = null,
     val thumb: String? = null,
     val art: String? = null,
     val summary: String? = null,
-    // Epoch seconds this was added to the Plex library (for the "date
-    // added" sort/filter) — distinct from originallyAvailableAt, which is
-    // the title's actual release date.
     val addedAt: Long? = null,
     val originallyAvailableAt: String? = null,
     @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
@@ -75,13 +52,6 @@ data class PlexSeason(
     val thumb: String? = null,
 )
 
-// Design spec 05c: viewOffset/duration drive the resume progress bar on each
-// row and the Resume/Play-from-start choice on the episode detail screen;
-// parentIndex/grandparentTitle/originallyAvailableAt back the screen's
-// "Show · Season N · Episode M" kicker and air date. Same fields
-// PlexOnDeckItem already carries for the same underlying Plex episode shape
-// — /library/metadata/{season}/children already returns all of these per
-// episode, confirmed against a real server; no query-param change needed.
 @Serializable
 data class PlexEpisode(
     val ratingKey: String,
@@ -96,10 +66,6 @@ data class PlexEpisode(
     val originallyAvailableAt: String? = null,
 )
 
-// streamType: 1 = video, 2 = audio, 3 = subtitle. id is the value the Plex
-// API calls subtitleStreamID elsewhere (universal transcode's subtitle
-// picker param) — distinct from index, which is just this stream's
-// position within the container.
 @Serializable
 data class PlexStream(
     val id: Long = 0,
@@ -131,11 +97,6 @@ data class PlexMedia(
     @SerialName("Part") val parts: List<PlexPart> = emptyList(),
 )
 
-// A cast/crew member as Plex's Role/Director/Writer elements all share this
-// shape — role (character name) is only ever populated on Role entries.
-// id is the person's server-scoped tag ID, used with ?actor=/?director= to
-// query "everything else with this person" (confirmed against a real server
-// this session).
 @Serializable
 data class PlexPerson(
     val id: Long? = null,
@@ -144,11 +105,6 @@ data class PlexPerson(
     val thumb: String? = null,
 )
 
-// One critic review, as returned by /library/metadata/{id}?includeReviews=1
-// — confirmed this session against a real server (Rotten Tomatoes-sourced).
-// tag is the critic's own byline; source is the outlet, which is what's
-// actually shown in the UI as the kicker. Plex's response also includes a
-// link, deliberately not modeled here — a URL is dead weight on a remote.
 @Serializable
 data class PlexReview(
     val tag: String,
@@ -157,34 +113,17 @@ data class PlexReview(
     val image: String? = null,
 )
 
-// Detail needed to actually play something — a movie or an episode, both of
-// which have the same Media/Part/Stream shape in Plex's API. Also carries
-// the detail-screen info-section data (cast/crew/ratings/reviews) sourced
-// from the same /library/metadata/{id} call, confirmed against a real
-// server this session.
 @Serializable
 data class PlexMovieDetail(
     val ratingKey: String,
     val title: String,
-    // Design spec 09d: Lobby's background is "the item's own art (backdrop,
-    // or the poster blurred and cropped when there is no 16:9 art)" — same
-    // standard top-level Plex metadata fields every other item type already
-    // carries (PlexLibraryItem/PlexOnDeckItem), just missing here since
-    // nothing needed them on this model until now.
     val thumb: String? = null,
     val art: String? = null,
     val duration: Long? = null,
-    // Position (ms) Plex has recorded from a previous partial watch, via our
-    // own TimelineReporter calls or another Plex client — absent/0 means
-    // start from the beginning.
     val viewOffset: Long? = null,
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),
-    // 0-10 critic/audience scores — multiply by 10 to render as a percentage.
     val rating: Double? = null,
     val audienceRating: Double? = null,
-    // e.g. "rottentomatoes://image.rating.rotten" — never invent a badge
-    // mark from these; map the URI's fresh/rotten/ripe/spilled suffix to a
-    // bundled in-house glyph instead (avoids bundling RT's own artwork).
     val ratingImage: String? = null,
     val audienceRatingImage: String? = null,
     @SerialName("Role") val roles: List<PlexPerson> = emptyList(),
@@ -193,9 +132,6 @@ data class PlexMovieDetail(
     @SerialName("Review") val reviews: List<PlexReview> = emptyList(),
 )
 
-// A mixed on-deck entry — a partially-watched movie, or the next-up episode
-// of an in-progress show. grandparentTitle/parentIndex/index are only
-// present when type == "episode" (show name / season # / episode #).
 @Serializable
 data class PlexOnDeckItem(
     val ratingKey: String,
@@ -210,11 +146,6 @@ data class PlexOnDeckItem(
     val index: Int? = null,
 )
 
-// One shelf from Plex's personalized home feed (/hubs/home) — the same
-// mechanism behind the official app's "Suggested"/"Because you watched X"
-// rows. Reuses PlexOnDeckItem for the item shape (mixed movie/show/episode,
-// same fields) rather than a fourth near-identical model; viewOffset/
-// duration are simply unused here.
 @Serializable
 data class PlexHub(
     val hubIdentifier: String? = null,

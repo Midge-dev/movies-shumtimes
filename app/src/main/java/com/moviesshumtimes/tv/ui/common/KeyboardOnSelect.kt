@@ -25,13 +25,6 @@ import com.moviesshumtimes.tv.ui.theme.AppDimBorder
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
-// BasicTextField shows the software keyboard as soon as it gains focus, which
-// on a D-pad means every field along a navigation path flashes the IME open
-// just from being passed over. `readOnly` is what actually suppresses that
-// auto-show internally (hiding it after the fact races the field's own
-// focus-triggered effect and loses); this field only drops readOnly, and
-// therefore only shows the keyboard, on an explicit select press — matching
-// a remote's "click to type" model.
 @Composable
 fun ClickToTypeTextField(
     value: String,
@@ -53,16 +46,6 @@ fun ClickToTypeTextField(
         singleLine = singleLine,
         decorationBox = decorationBox,
         cursorBrush = SolidColor(NeonPurple),
-        // The border sits outside the caller's own background/padding
-        // modifiers so it outlines the whole field rather than just its
-        // padded content area — it's the only cue a D-pad user gets that
-        // this field is focused and ready for a select press to open it.
-        // Always present (dim gray unfocused, purple gradient focused)
-        // rather than conditionally added/removed, so an unfocused-vs-
-        // never-rendered mixup is visible at a glance instead of requiring
-        // logcat: if it never even shows dim gray, rendering is the
-        // problem; if it shows gray but never turns purple, isFocused
-        // isn't updating.
         modifier = Modifier
             .border(
                 BorderStroke(

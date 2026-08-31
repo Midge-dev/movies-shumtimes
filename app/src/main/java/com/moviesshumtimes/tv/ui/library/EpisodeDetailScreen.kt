@@ -46,13 +46,6 @@ import kotlinx.coroutines.flow.first
 
 private const val HERO_HEIGHT_DP = 420
 
-// Design spec 05c: "A show currently offers one Watch Together, on the show,
-// which starts a room on whatever episode is on deck. That is the wrong
-// grain: rooms are about a specific episode." Identical hero to 05b's
-// MovieHero (same background/scrim treatment, same button row, same
-// "Hosting on <relay>" helper line), plus one accent mono kicker line above
-// the title naming the show/season/episode, and a Resume/Play-from-start
-// choice driven by the episode's own viewOffset instead of a single Play.
 @Composable
 fun EpisodeDetailScreen(
     server: PlexServer,
@@ -65,18 +58,11 @@ fun EpisodeDetailScreen(
 ) {
     BackHandler(onBack = onBack)
 
-    // See ShowEpisodesScreen's matching comment — AppNavigationDrawer's
-    // sidebar is the first focusable thing in the composition, so this
-    // screen needs its own explicit request too. Initial focus sits on the
-    // primary action (Resume, or Play from start if there's no resume
-    // point) regardless of which one that resolves to.
     val primaryFocus = remember { FocusRequester() }
     LaunchedEffect(episode.ratingKey) {
         runCatching { primaryFocus.requestFocus() }
     }
 
-    // Design spec 09d: "Always the default. No prompt." — same helper line
-    // MovieHero shows, naming which relay hosting will actually use.
     val context = LocalContext.current
     var defaultRelayNickname by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
@@ -136,8 +122,6 @@ fun EpisodeDetailScreen(
                 ) {
                     Text(if (hasResume) "Resume ${formatTimecode(episode.viewOffset ?: 0L)}" else "Play from start")
                 }
-                // Only renders alongside Resume — with no resume point,
-                // Play from start and the primary action would be identical.
                 if (hasResume) {
                     ShumOutlinedButton(onClick = onPlayFromStart) {
                         Text("Play from start")

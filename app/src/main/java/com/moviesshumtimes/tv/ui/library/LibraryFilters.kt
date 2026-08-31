@@ -22,8 +22,6 @@ private fun releaseYear(item: PlexLibraryItem): Int? =
 
 fun decadeOf(item: PlexLibraryItem): Int? = releaseYear(item)?.let { (it / 10) * 10 }
 
-// Cumulative, not partitioned — an item added 10 days ago should still
-// match "Last 6 months", matching how Plex's own recency filters read.
 fun matchesDateAddedBucket(item: PlexLibraryItem, bucket: DateAddedBucket, nowEpochSeconds: Long): Boolean {
     val addedAt = item.addedAt ?: return false
     val ageDays = (nowEpochSeconds - addedAt) / SECONDS_PER_DAY

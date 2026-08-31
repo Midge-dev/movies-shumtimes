@@ -28,73 +28,28 @@ import kotlinx.serialization.json.put
 private const val INITIAL_BACKOFF_MS = 1_000L
 private const val MAX_BACKOFF_MS = 30_000L
 
-// What a connection is trying to do — create a fresh room (host) or join an
-// existing one by id (guest, from the Home screen's room directory). The
-// relay's old single-tenant "hello" envelope is gone; every device
-// connection now states its room intent up front.
 sealed interface RoomIntent {
-    // maxSeats: design spec section 14 "Maximum seats" — a client-side cap on
-    // rooms this device hosts, sent with the room when it opens; the relay
-    // clamps it to its own MAX_DEVICE_SEATS ceiling rather than trusting it
-    // outright. Null lets the relay fall back to its own default (joining a
-    // room, or an older client that never set the setting, needs no opinion).
     data class Create(val title: String, val thumb: String?, val ratingKey: String?, val hostName: String, val maxSeats: Int? = null) :
         RoomIntent
     data class Join(val roomId: String) : RoomIntent
 }
 
-// Thin transport client for the watch-together relay (relay/server.js):
-// speaks the hello/welcome/event/full envelope protocol, carries an
-// application-level RelayEvent inside every "event" message, and persists
-// the identity (peerId + reconnectToken) the relay uses to hand a
-// reconnecting device its own seat back — see RelayIdentityStore for why
-// that round-trips through the caller rather than living here.
-//
-// Connection failures are swallowed on purpose — sync is a bonus on top of
-// local playback, never something that should be able to break watching a
-// movie solo or when the relay is unreachable. Reconnects automatically
-// with exponential backoff until disconnect() is called.
-//
-// The connect/send/disconnect surface stays synchronous (fire-and-forget),
-// matching the old OkHttp WebSocket's callback-driven shape, even though
-// Ktor's session API (webSocketSession/send/close) is suspend-based —
-// each dispatches onto `scope` internally instead of exposing suspend
-// functions, so call sites don't change.
 class RelayClient(
     val relayUrl: String,
     private var identity: RelayIdentity,
     private val scope: CoroutineScope,
     private val onIdentityUpdated: (RelayIdentity) -> Unit = {},
-    // Fired whenever a "welcome" lands us in seat 0 — true host, whether
-    // this connection just created the room or reclaimed it after a drop.
-    // Lets the caller persist "the room I'm hosting" independent of this
-    // client's own lifetime, so Home can still offer to end it long after
-    // this RelayClient (and its live socket) has been torn down. Carries
-    // this room's own host-seat token alongside its id — needed to close
-    // this specific room later, since a device hosting multiple rooms holds
-    // a different token per room.
     private val onHostedRoomIdUpdated: (roomId: String, reconnectToken: String) -> Unit = { _, _ -> },
 ) {
     private val client = HttpClient { install(WebSockets) }
     private val json = Json { ignoreUnknownKeys = true }
     private var session: DefaultClientWebSocketSession? = null
     private var sessionJob: Job? = null
-    // Guards attemptConnect()'s finally block against a superseded attempt's
-    // cleanup running after a newer attempt has already taken over — see
-    // that finally block's own comment for the exact race (retryNow()
-    // cancelling then immediately restarting).
     private var connectionGeneration = 0
     private var reconnectJob: Job? = null
     private var backoffMs = INITIAL_BACKOFF_MS
     private var manuallyDisconnected = false
-    // ROOM_FULL and ROOM_NOT_FOUND are both terminal rejections, not
-    // transient failures — a reconnect won't fix "the room is full" or "the
-    // room ended," so scheduleReconnect surfaces whichever one just
-    // happened instead of always falling back to RECONNECTING.
     private var lastRejection: ConnectionState? = null
-    // What the *next* (re)connect attempt should do — set by connect(),
-    // reused verbatim across reconnects so a dropped connection rejoins the
-    // same room instead of re-running whatever intent was passed in first.
     private var intent: RoomIntent? = null
 
     private val _events = MutableSharedFlow<RelayEvent>(extraBufferCapacity = 32)
@@ -103,13 +58,9 @@ class RelayClient(
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState
 
-    // 0 = host, 1..N-1 = guest. Null until a "welcome" is received.
     private val _seatIndex = MutableStateFlow<Int?>(null)
     val seatIndex: StateFlow<Int?> = _seatIndex
 
-    // Populated from "welcome" — null until connected. Needed by the Lobby's
-    // chat QR (to scope the phone's chat join to this room) and by Home to
-    // mark this room as "yours" (Rejoin / "You're in") in the directory.
     private val _roomId = MutableStateFlow<String?>(null)
     val roomId: StateFlow<String?> = _roomId
 
@@ -127,14 +78,6 @@ class RelayClient(
         lastRejection = null
         _connectionState.value = ConnectionState.CONNECTING
         val myGeneration = ++connectionGeneration
-        // One coroutine owns the whole connection lifecycle: opening the
-        // session, sending the create/join request, and reading frames
-        // until the session ends (gracefully or not — both cases fall
-        // through to the same finally block, mirroring the old
-        // onClosed/onFailure callbacks both unconditionally calling
-        // scheduleReconnect()). Cancelling this job (see disconnect()) is
-        // itself what tears the session down, via structured concurrency,
-        // instead of a separate close call racing against it.
         sessionJob = scope.launch {
             try {
                 val newSession = client.webSocketSession(relayUrl)
@@ -167,13 +110,6 @@ class RelayClient(
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
             } finally {
-                // retryNow() cancels this job and starts a new attemptConnect()
-                // immediately; coroutine cancellation is asynchronous, so this
-                // block can still run after that newer attempt has already
-                // connected and taken over `session`/`_seatIndex`. Without this
-                // check, that would null out a connection that just succeeded
-                // and queue a spurious extra reconnect on top of it — only the
-                // attempt that's still the current generation gets to act.
                 if (myGeneration == connectionGeneration) {
                     session = null
                     _seatIndex.value = null
@@ -209,13 +145,6 @@ class RelayClient(
                 lastRejection = ConnectionState.ROOM_NOT_FOUND
                 _connectionState.value = ConnectionState.ROOM_NOT_FOUND
             }
-            // The host ended this room on purpose (see relay/server.js's
-            // /rooms/:roomId/close, which now notifies every occupied seat,
-            // not just the host's own). The relay closes this socket right
-            // after sending this frame — manuallyDisconnected=true here
-            // stops the resulting disconnect from scheduling a pointless
-            // reconnect against a room that's gone for good, which would
-            // otherwise silently overwrite this state.
             "closed" -> {
                 manuallyDisconnected = true
                 _connectionState.value = ConnectionState.ROOM_CLOSED
@@ -230,12 +159,6 @@ class RelayClient(
 
     private fun scheduleReconnect() {
         if (manuallyDisconnected) return
-        // A room that's full or gone won't fix itself on a timer the way a
-        // dropped network connection might — still retry (the host could
-        // free a seat, or this could be a stale rejection from before a
-        // reconnect), but report the specific rejection meanwhile rather
-        // than a generic RECONNECTING that reads as "still trying to
-        // connect" when the real answer is already known.
         _connectionState.value = lastRejection ?: ConnectionState.RECONNECTING
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
@@ -245,9 +168,6 @@ class RelayClient(
         }
     }
 
-    // Design spec 09d's Lobby failure state ("Can't reach {relay}") ->
-    // Retry — cancels whatever backoff wait is pending and attempts right
-    // now instead of making the user wait out the current delay too.
     fun retryNow() {
         if (manuallyDisconnected) return
         reconnectJob?.cancel()

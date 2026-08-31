@@ -22,23 +22,11 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGradient
 import com.moviesshumtimes.tv.ui.theme.NeonPurplePressed
 
-// Design spec section 04: pill shape, label #FFFFFF in every state, 2dp
-// stroke on focus. Filled — primary action: container transparent-ish
-// (AppSurfaceVariant) at rest, solid NeonPurple + gradient border/glow on
-// focus, a distinct darker pressed tone, never a plain "focused but held"
-// look. No colors/border/glow params — this app's whole point is one theme,
-// not a per-call-site configuration surface.
 private val ButtonShape = CircleShape
 private val ButtonMinWidth: Dp = 58.dp
 private val ButtonMinHeight: Dp = 40.dp
 private val ButtonContentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
 
-// Opt-in smaller footprint for contexts with several actions in a tight
-// space (e.g. HomeScreen's RoomCard Join/End session pair) — same colors/
-// border/glow contract as the regular size, just less padding, so a control
-// can shrink without becoming a different theme. Not the default: most
-// buttons (MovieDetail's Play/Watch Together, Settings' Save, ...) have
-// room to breathe at the standard size and should keep using it.
 private val ButtonCompactMinHeight: Dp = 32.dp
 private val ButtonCompactContentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
 
@@ -82,8 +70,6 @@ fun ShumButton(
     }
 }
 
-// Outlined — secondary/dismiss: container never fills, only the 2dp border
-// changes (idle dim gray → focused gradient); label stays #FFFFFF always.
 private val outlinedColors = ShumColors(
     container = Color.Transparent,
     content = AppWhite,

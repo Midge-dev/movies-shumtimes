@@ -6,18 +6,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// Guest-side reconciliation loop: converges the local player onto the
-// host's authoritative PlaybackState. Ported down from Plezy's
-// guest_playback_reconciler.dart — same deadband + hard-seek correction and
-// scheduled-group-start-via-clock-sync approach. Dropped: the rate-based
-// "nudge" tier for small drift (see HostPlaybackCoordinator's doc comment
-// for why) — this only ever hard-seeks, gated by a deadband and a cooldown
-// so it doesn't fight small, harmless jitter.
-//
-// Local user actions become ControlRequests sent to the host (this app has
-// always let either side drive playback, so there's no host-only control
-// mode to model) with a short optimistic window so the next heartbeat from
-// the host doesn't undo them before its own reply lands.
 class GuestPlaybackReconciler(
     private val myPeerId: String,
     private val player: SyncedPlayer,
@@ -28,16 +16,6 @@ class GuestPlaybackReconciler(
 ) {
     private companion object {
         const val TICK_MS = 500L
-        // 350ms was too tight for a relay-routed, cross-household
-        // connection: without rate-based nudging (see
-        // HostPlaybackCoordinator's doc comment for why that was dropped),
-        // hard-seek is the *only* correction available, and normal WAN
-        // clock-sync jitter routinely exceeds a few hundred ms even once
-        // converged. At 350ms that meant a disruptive re-seek (and the
-        // real rebuffer it causes) on practically every cooldown cycle —
-        // a couple of seconds of drift between two people on a phone/voice
-        // call together is imperceptible; constant stalling to chase it
-        // isn't.
         const val DEADBAND_MS = 1_500L
         const val HARD_SEEK_COOLDOWN_MS = 4_000L
         const val PAUSED_SEEK_THRESHOLD_MS = 500L
@@ -113,20 +91,17 @@ class GuestPlaybackReconciler(
         tickJob?.cancel()
         settleJob?.cancel()
         scheduledStartJob?.cancel()
-        // Tell the host we're no longer here so it re-gates the next
-        // start instead of waiting on a stale "ready".
         sendStatus(PeerStatus(ready = false, buffering = false, positionMs = 0))
     }
 
     fun onState(state: PlaybackState) {
-        if (state.seq <= lastSeq) return // Stale or reordered.
+        if (state.seq <= lastSeq) return
         lastSeq = state.seq
         latestState = state
 
         if (optimisticUntilSeq != null && (state.actorPeerId == myPeerId || state.actionHint != null)) {
             optimisticUntilSeq = null
         }
-        // Self-heal: the host thinks it's waiting on us but we're healthy.
         if (state.waitingOn.contains(myPeerId) && localReady && player.playbackState != SyncPlaybackState.BUFFERING) {
             sendStatusNow(force = true)
         }
@@ -157,7 +132,6 @@ class GuestPlaybackReconciler(
     private fun reconcilePlaying(state: PlaybackState) {
         val hostNow = clock.hostNowMs()
 
-        // Scheduled group start: hold at the anchor, then start on the dot.
         if (state.anchorHostTimeMs > hostNow) {
             if (scheduledStartSeq != state.seq) {
                 scheduledStartJob?.cancel()

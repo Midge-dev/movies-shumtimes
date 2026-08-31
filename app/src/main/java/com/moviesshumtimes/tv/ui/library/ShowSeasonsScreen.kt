@@ -41,9 +41,6 @@ fun ShowSeasonsScreen(
 ) {
     BackHandler(onBack = onBack)
 
-    // See LibraryScreen's matching comment — AppNavigationDrawer's sidebar
-    // is the first focusable thing in the composition, so every wrapped
-    // screen needs its own explicit request or D-pad focus defaults there.
     val firstItemFocus = remember { FocusRequester() }
     LaunchedEffect(seasons) {
         runCatching { firstItemFocus.requestFocus() }
@@ -101,7 +98,6 @@ private fun SeasonPoster(
             }
         },
         title = {
-            // Same glow-vs-title collision fix as LibraryScreen's poster.
             Text(text = season.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 16.dp))
         },
     )

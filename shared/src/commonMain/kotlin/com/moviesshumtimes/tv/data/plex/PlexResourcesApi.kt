@@ -8,15 +8,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
-// PlexConnection/PlexResource/PlexServer live in the shared module now
-// (data/plex/PlexModels.kt) — pure data, no OkHttp.
-
-// Discovers Plex servers reachable from this account (including servers
-// shared by other accounts, like the cousin's) and figures out which of
-// each server's candidate connection URIs is actually reachable from here.
-// A shared server run from another state will typically only answer on its
-// relay connection unless the owner has port-forwarding set up, so we can't
-// just take connections[0] — every candidate has to be tried for real.
 class PlexResourcesApi(private val clientIdentifier: String) {
     private val client = plexHttpClient()
     private val connectClient = plexHttpClient {
@@ -37,15 +28,6 @@ class PlexResourcesApi(private val clientIdentifier: String) {
     suspend fun listServers(accountToken: String): List<PlexResource> =
         fetchResources(accountToken).filter { "server" in it.provides && it.accessToken != null }
 
-    // preferredMachineIdentifier is a server the user explicitly chose in
-    // Settings (see AppSettings.selectedServerId). When set, only that
-    // server is tried — no silent fallback to a different one, since a
-    // silent fallback is exactly what caused a real bug: the app used to
-    // always prefer any owned==false (shared) resource, which broke for
-    // an account (e.g. the cousin's own) that has access to more than one
-    // shared server and owns its real one, landing on the wrong library.
-    // When null (nothing chosen yet, e.g. first launch), fall back to that
-    // same owned-server-last heuristic as a reasonable default.
     suspend fun findReachableServer(accountToken: String, preferredMachineIdentifier: String? = null): PlexServer? {
         val servers = listServers(accountToken)
         if (preferredMachineIdentifier != null) {

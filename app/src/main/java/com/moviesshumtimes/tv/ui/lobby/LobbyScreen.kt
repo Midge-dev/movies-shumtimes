@@ -69,36 +69,19 @@ import java.net.URLEncoder
 
 private const val PRESENCE_INTERVAL_MS = 3_000L
 private const val ROSTER_STALE_MS = PRESENCE_INTERVAL_MS * 3
-// Mirrors the relay's own MAX_DEVICE_SEATS default (relay/server.js) —
-// purely a UI cue for when to stop showing a trailing empty seat; the
-// server is the actual source of truth on room capacity.
 private const val ROOM_SEAT_CAP = 8
 
 private data class RosterEntry(val username: String, val avatarUrl: String?, val lastSeenMs: Long)
 
-// A skippable waiting room: shows who's connected before playback starts,
-// but never blocks solo viewing — Start Movie is always enabled, matching
-// the rest of the sync layer's "bonus, not a dependency" design. The relay
-// connection is owned above this screen now (see MainActivity's AppRoot)
-// so it survives the transition into PlayerScreen instead of reconnecting.
 @Composable
 fun LobbyScreen(
     server: PlexServer,
     detail: PlexMovieDetail,
     localUsername: String,
     localAvatarUrl: String?,
-    // The room's host display name — for the host's own Lobby view this is
-    // just localUsername; for a guest (joined via the Home room directory)
-    // it comes from that room's RelayRoomSummary, since a guest otherwise
-    // has no way to know who's hosting.
     hostName: String,
-    // Design spec 09d — shown next to the title with the connection dot.
     relayNickname: String,
     relay: RelayClient,
-    // Non-null only for the host's own Lobby, and only when another
-    // configured relay exists to fail over to — a guest can't rehost
-    // someone else's room, and there's nothing to offer with just one relay
-    // configured. See MainActivity's hostOnAnotherRelay.
     onHostOnAnother: (() -> Unit)?,
     onStart: () -> Unit,
     onBack: () -> Unit,
@@ -112,9 +95,6 @@ fun LobbyScreen(
     var showChatModal by remember { mutableStateOf(false) }
     val chatMessages = remember { MutableSharedFlow<ChatMessage>(extraBufferCapacity = 16) }
 
-    // Lobby renders immediately with the default corner and re-aligns once
-    // the real preference loads — unlike PlayerScreen, this screen shouldn't
-    // block on a settings read just to draw its chat overlay.
     val context = LocalContext.current
     var chatOverlayCorner by remember { mutableStateOf(ChatOverlayCorner.BOTTOM_END) }
     LaunchedEffect(Unit) {
@@ -128,20 +108,8 @@ fun LobbyScreen(
     }
 
     BackHandler(onBack = onBack)
-    // Composed after (and so takes priority over) the screen-level handler
-    // above while the modal is open — dismisses just the modal on Back
-    // instead of leaving the whole lobby.
     BackHandler(enabled = showChatModal) { showChatModal = false }
 
-    // The room this Lobby is waiting on just ended — either the host closed
-    // it (ROOM_CLOSED, the explicit signal every seat now gets) or it's
-    // simply gone by the time a reconnect attempt lands (ROOM_NOT_FOUND).
-    // Without this, whoever's waiting here just sees RelayStatusLine's
-    // generic "Can't reach {relay}" failure, which reads as a connectivity
-    // problem rather than the deliberate end it actually was. onBack already
-    // does exactly what's needed: release the connection and return to
-    // wherever this Lobby was opened from (Home, for anyone who joined from
-    // the room directory).
     LaunchedEffect(connectionState) {
         if (connectionState == ConnectionState.ROOM_CLOSED || connectionState == ConnectionState.ROOM_NOT_FOUND) {
             onBack()
@@ -157,9 +125,6 @@ fun LobbyScreen(
         }
     }
 
-    // Roster entries expire on their own if presence stops arriving (peer
-    // backgrounded, lost connection) rather than needing an explicit
-    // "peerLeft" signal from the dumb relay.
     LaunchedEffect(Unit) {
         while (true) {
             delay(PRESENCE_INTERVAL_MS)
@@ -183,12 +148,6 @@ fun LobbyScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Design spec 09d: "Background is the item's own art (backdrop, or
-        // the poster blurred and cropped when there is no 16:9 art) under a
-        // vertical #0D0D12 scrim, 62% at the top to 92% at the bottom. The
-        // scrim is what carries the contrast — every piece of text here is
-        // measured against the darkest stop, not against the art." Replaces
-        // a bundled generic background drawable with the actual title's art.
         ShumArtwork(
             model = PlexImageUrl.of(server, detail.art ?: detail.thumb),
             contentDescription = null,
@@ -222,13 +181,6 @@ fun LobbyScreen(
                 Text(relayNickname, color = AppWhite.copy(alpha = 0.7f))
             }
 
-            // Host seat, then one card per filled seat, then exactly one
-            // trailing empty seat as the "next spot" to fill — not a fixed
-            // bank of slots up front. The empty seat simply doesn't render
-            // once the room is at capacity. A guest's own presence isn't in
-            // `roster` (LobbyScreen only tracks *others*), so it's prepended
-            // here to occupy one of the non-host seats instead of being
-            // displayed as the host.
             val others = remember(roster, isHost, localUsername, localAvatarUrl) {
                 buildList {
                     if (!isHost) add(RosterEntry(localUsername, localAvatarUrl, Long.MAX_VALUE))
@@ -248,7 +200,6 @@ fun LobbyScreen(
                 for (entry in others) {
                     LobbyPersonCard(name = entry.username, avatarUrl = entry.avatarUrl)
                 }
-                // +1 for the host seat, which isn't in `others`.
                 if (others.size + 1 < ROOM_SEAT_CAP) {
                     EmptySeat()
                 }
@@ -276,10 +227,6 @@ fun LobbyScreen(
             modifier = Modifier.align(chatAlignment).fillMaxWidth(0.5f).padding(24.dp),
         )
 
-        // Design spec 09d: pinned to the bottom, never a modal, never
-        // blocking Play/Watch Together/Start. Retry re-attempts the same
-        // relay immediately; Host on another relay only renders for a host
-        // with somewhere else to go (see onHostOnAnother's doc comment).
         Box(modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(0.6f).padding(32.dp)) {
             RelayStatusLine(
                 status = relayStatus,
@@ -295,24 +242,8 @@ fun LobbyScreen(
     }
 }
 
-// A dedicated full-screen modal instead of an inline panel: the lobby's
-// content column is vertically centered and grows with the roster, so
-// appending the QR row to it (the original approach) could get pushed
-// outside the screen's safe area on real TV overscan — cutting off both
-// the QR and the URL text, exactly what happened during Sean's testing.
-// Centering this independently in its own Box guarantees it's always
-// fully visible regardless of what else is on the lobby screen, and it
-// can afford a much bigger, more scannable QR code too.
 @Composable
 private fun ChatQrModal(relayUrl: String, roomId: String?, defaultName: String, onDismiss: () -> Unit) {
-    // relayUrl is guaranteed non-placeholder here: LobbyScreen only exists
-    // when ensureRelayClient() already built a real connection from it (see
-    // MainActivity's onPlay/onSelect handlers) — roomId is null only for the
-    // brief window before "welcome" lands, which the null-message branch
-    // below covers rather than treating as a hard error.
-    // defaultName rides along as a query param so scanning your own TV's
-    // code pre-fills your real Plex username on the chat page instead of a
-    // random "Phone 123" — still editable there, and remembered after.
     val chatUrl = remember(relayUrl, roomId, defaultName) {
         roomId?.let { relayUrlToChatUrl(relayUrl, it, defaultName) }
     }
@@ -353,9 +284,6 @@ private fun ChatQrModal(relayUrl: String, roomId: String?, defaultName: String, 
                 Text(chatUrl, color = AppWhite, style = ShumTypography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
             }
 
-            // Secondary/dismiss action — OutlinedButton reads as lower
-            // emphasis than the solid NeonPurple buttons used for primary
-            // actions elsewhere (Start, Save & continue).
             ShumOutlinedButton(
                 onClick = onDismiss,
                 modifier = Modifier.padding(top = 28.dp).focusRequester(closeFocusRequester),
@@ -367,15 +295,6 @@ private fun ChatQrModal(relayUrl: String, roomId: String?, defaultName: String, 
     }
 }
 
-// Derives the relay's phone-facing chat page URL from its WebSocket URL —
-// same host/port/token, http(s) scheme, /chat path, plus the roomId (so the
-// phone's chat joins this specific room's history, not some other one) and
-// a name param so the chat page can default to the scanning device's real
-// username instead of a random placeholder. No app install needed on the
-// phone side, matching the existing "Pair from phone" QR flow. Uses the
-// shared (KMP-portable) relayHttpUrl parser rather than java.net.URI, kept
-// here only for URLEncoder — fine to stay JVM-only since this file is
-// Android-only, unlike the shared sync package.
 private fun relayUrlToChatUrl(relayUrl: String, roomId: String, defaultName: String): String? {
     val parsed = relayHttpUrl(relayUrl) ?: return null
     val params = buildList {
@@ -414,8 +333,6 @@ private fun LobbyPersonCard(name: String, avatarUrl: String?, subtitle: String? 
     }
 }
 
-// Design spec 09b: capacity only, not pressable — there's nobody to invite
-// into it, just a visual placeholder showing the room has room to grow.
 @Composable
 private fun EmptySeat() {
     Canvas(modifier = Modifier.size(96.dp)) {

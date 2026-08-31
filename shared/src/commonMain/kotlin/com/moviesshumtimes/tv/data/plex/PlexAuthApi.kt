@@ -27,8 +27,6 @@ private data class PlexAccountResponse(
     val thumb: String? = null,
 )
 
-// Client for Plex's PIN-based auth flow, meant for limited-input devices
-// like a TV: https://plex.tv/api/v2/pins.
 class PlexAuthApi(private val clientIdentifier: String) {
     private val client = plexHttpClient()
 
@@ -38,9 +36,6 @@ class PlexAuthApi(private val clientIdentifier: String) {
         header("X-Plex-Client-Identifier", clientIdentifier)
     }
 
-    // Deliberately no "strong" param: that produces a long OAuth-style code
-    // meant to be embedded in an app-link URL, not the short 4-character
-    // code a person can type in by hand at plex.tv/link on a TV.
     suspend fun createPin(): PlexPin =
         client.post("https://plex.tv/api/v2/pins") {
             withPlexHeaders()

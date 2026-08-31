@@ -13,8 +13,6 @@ import androidx.compose.ui.unit.dp
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
-// Purely decorative inside ShumListItem (which owns the actual click/focus
-// row) — a filled dot in an outer ring when selected, empty ring otherwise.
 @Composable
 fun ShumRadioButton(selected: Boolean, modifier: Modifier = Modifier) {
     Box(

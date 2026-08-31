@@ -38,16 +38,6 @@ import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
-// Design spec 09c: everything below the hero is an ordinary self-hiding row
-// in one fixed order (Cast & Crew -> Ratings & Reviews -> Related -> More
-// with lead -> More with co-star). Hiding is per-section and is the normal
-// case, not an error state — most personal-media items simply have none of
-// this data.
-
-// One rail combining cast and crew (not two separate rows — spec: "a
-// separate three-person crew row looks broken"). Crew entries reuse the
-// same avatar with their department word (Director/Writer) where a Role
-// would show the character name.
 @Composable
 fun CastCrewRow(
     server: PlexServer,
@@ -80,8 +70,6 @@ fun CastCrewRow(
     }
 }
 
-// Director/Writer don't carry a "role" word from the server the way cast
-// characters do, so it's derived from which list the person came from.
 private fun crewTitle(person: PlexPerson, crew: List<PlexPerson>): String? =
     if (person in crew) "Crew" else null
 
@@ -104,9 +92,6 @@ private fun CastMemberAvatar(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                // Never a silhouette icon (design spec) — a flat tinted
-                // circle with the person's initial instead, same idiom as
-                // LobbyScreen's LobbyPersonCard fallback.
                 Box(
                     modifier = Modifier.fillMaxSize().background(AppSurfaceVariant),
                     contentAlignment = Alignment.Center,
@@ -195,9 +180,6 @@ private fun RatingTile(percent: Int, label: String, image: String?) {
     }
 }
 
-// Maps Plex's rottentomatoes://image.rating.* URIs to an in-house color
-// swatch rather than bundling Rotten Tomatoes' own trademarked artwork —
-// fresh/certified tones green, rotten/spilled tones red, unknown is neutral.
 private fun ratingBadgeColor(image: String?): Color {
     val suffix = image?.substringAfterLast('.')?.lowercase()
     return when (suffix) {
@@ -228,9 +210,6 @@ private fun ReviewCard(review: PlexReview) {
     }
 }
 
-// Shared shell for Related Movies / More-with-<person> rows — same shape as
-// HomeScreen's private HomeRow, kept local to this screen rather than
-// exported since it's currently only needed here.
 @Composable
 fun PosterRow(title: String, items: List<PlexOnDeckItem>, server: PlexServer, onClick: (PlexOnDeckItem) -> Unit) {
     if (items.isEmpty()) return

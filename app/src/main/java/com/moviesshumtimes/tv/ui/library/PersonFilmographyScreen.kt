@@ -41,10 +41,6 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
 private const val GRID_COLUMNS = 5
 
-// Reached by pressing a cast/crew member on MovieDetail (design spec 09c) —
-// intentionally a plain grid rather than LibraryScreen's full sort/filter
-// UI, since a person-filtered view isn't "browsing a section" and has no
-// natural section to highlight in the nav drawer.
 @Composable
 fun PersonFilmographyScreen(
     server: PlexServer,
@@ -67,9 +63,6 @@ fun PersonFilmographyScreen(
             horizontalArrangement = Arrangement.spacedBy(20.dp),
             modifier = Modifier.padding(start = 32.dp, top = 32.dp, end = 32.dp),
         ) {
-            // Same circular portrait the cast rail used, at 88dp — continuity
-            // across the press, so this reads as the portrait having opened
-            // rather than a new destination having appeared.
             Box(modifier = Modifier.size(88.dp).clip(CircleShape)) {
                 if (personThumb != null) {
                     ShumArtwork(

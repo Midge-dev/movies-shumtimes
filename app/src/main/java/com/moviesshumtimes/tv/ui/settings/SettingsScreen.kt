@@ -111,10 +111,6 @@ fun SettingsScreen(
         loaded = true
     }
 
-    // Which Plex servers this account can see — fetched separately from the
-    // local DataStore settings above since it's a network call that can
-    // fail independently (e.g. relay/server unreachable shouldn't block
-    // editing the other settings).
     var sources by remember { mutableStateOf<List<PlexResource>>(emptyList()) }
     var sourcesLoaded by remember { mutableStateOf(false) }
     var sourcesError by remember { mutableStateOf<String?>(null) }
@@ -128,44 +124,24 @@ fun SettingsScreen(
 
     BackHandler(onBack = onBack)
 
-    // Design spec 09d: "Settings › Relay settings opens it as its own screen
-    // with a back breadcrumb, so the relay list never lengthens the
-    // top-level column." Composed after the screen-level BackHandler above,
-    // so it takes priority while the pane is open — same "later handler
-    // wins" idiom LobbyScreen's chat-QR modal already uses.
     var showingRelaySettings by remember { mutableStateOf(false) }
     val relaySettingsEntryFocus = remember { FocusRequester() }
     BackHandler(enabled = showingRelaySettings) { showingRelaySettings = false }
 
-    // Design spec section 14 "Maximum seats" — exactly the section 06b Sort
-    // menu, reused: anchored under its row, select applies immediately and
-    // closes, Back closes with no change, focus opens on the applied value.
     var maxSeatsMenuExpanded by remember { mutableStateOf(false) }
     val maxSeatsOptionFocuses = remember {
         AppSettings.MAX_HOST_SEATS_OPTIONS.associateWith { FocusRequester() }
     }
     BackHandler(enabled = maxSeatsMenuExpanded) { maxSeatsMenuExpanded = false }
 
-    // "Pair from phone" — a phone on the same Wi-Fi can type a relay's
-    // nickname + URL via a tiny local web page served straight from the TV,
-    // instead of typing a long wss://...?token=... string on a remote.
     var pairingServer by remember { mutableStateOf<PairingServer?>(null) }
     var pairingUrl by remember { mutableStateOf<String?>(null) }
     var pairingError by remember { mutableStateOf<String?>(null) }
-    // Non-null while the phone-pairing panel is open to edit an existing
-    // relay's nickname/URL in place, rather than append a new entry.
     var editingRelayId by remember { mutableStateOf<String?>(null) }
-    // Design spec 09d: "Test & save" — a candidate relay's reachability is
-    // checked (tolerating a cold start) before it's added to the list, and
-    // saved either way, greyed if the test failed.
     var testingRelayName by remember { mutableStateOf<String?>(null) }
     var testStatus by remember { mutableStateOf<RelayStatus>(RelayStatus.Silent) }
 
     val relayDirectoryApi = remember { RelayDirectoryApi() }
-    // id -> (reachable, room count) — null while still loading. Fetched
-    // once per relay list identity (on load, and again whenever a relay is
-    // added/removed) rather than continuously polled; this screen is
-    // short-lived.
     var relayStatuses by remember { mutableStateOf<Map<String, Pair<Boolean, Int>?>>(emptyMap()) }
 
     DisposableEffect(Unit) {
@@ -188,18 +164,7 @@ fun SettingsScreen(
         }
     }
 
-    // BasicTextField doesn't hand D-pad DOWN/UP off to neighboring
-    // focusables on its own (it treats them as text-cursor movement first),
-    // so the row below it would otherwise be unreachable by remote. These
-    // FocusRequesters make the down/up route explicit between the fields.
     val sourceFocuses = remember(sources) { sources.map { FocusRequester() } }
-    // Keyed by relay id (stable across add/remove/make-default), not by the
-    // relay list itself — a remember(settings.relays) map would rebuild
-    // every FocusRequester whenever ANY entry's fields changed (they're
-    // data classes, so isDefault flipping changes list equality), orphaning
-    // whichever row/button currently held focus and dropping the remote's
-    // next press into the nav drawer. Entries for removed relays are simply
-    // left unused — harmless for a screen this short-lived.
     val relayRowFocuses = remember { mutableStateMapOf<String, RelayRowFocus>() }
     fun relayRowFocus(entry: RelayEntry): RelayRowFocus = relayRowFocuses.getOrPut(entry.id) { RelayRowFocus() }
     val firstRelayRowFocus = settings.relays.firstOrNull()?.let { relayRowFocus(it).leftmost(it) }
@@ -207,12 +172,6 @@ fun SettingsScreen(
     val addRelayFocus = remember { FocusRequester() }
     val cancelPairingFocus = remember { FocusRequester() }
     val maxHostSeatsFocus = remember { FocusRequester() }
-    // Closing the menu (Back, or selecting an option) destroys its focused
-    // row with nothing else claiming focus — same transient-gap bug as
-    // every other "swap away the focused thing" spot in this app (see
-    // RelaySettingsPane's own focus-restore effect, and RoomCard/
-    // RemoveConfirmOverlay's focus traps). Without this, focus falls
-    // through to the nav drawer.
     LaunchedEffect(maxSeatsMenuExpanded) {
         if (!maxSeatsMenuExpanded) runCatching { maxHostSeatsFocus.requestFocus() }
     }
@@ -226,26 +185,12 @@ fun SettingsScreen(
     val saveFocus = remember { FocusRequester() }
     val scrollState = rememberScrollState()
 
-    // See LibraryScreen's matching comment — AppNavigationDrawer's sidebar
-    // is the first focusable thing in the composition, so this screen needs
-    // its own explicit request too. Waits for sourcesLoaded since the
-    // source rows (the preferred target) don't exist until that async
-    // fetch finishes either way — falls back to the first relay row, or the
-    // always-present "Add a relay" row if there are none yet.
     LaunchedEffect(sourcesLoaded, sourceFocuses) {
         if (!sourcesLoaded) return@LaunchedEffect
         val target = sourceFocuses.firstOrNull() ?: relaySettingsEntryFocus
         runCatching { target.requestFocus() }
     }
 
-    // Focus follows the breadcrumb: entering the pane lands on the first
-    // relay row (or "Add a relay" if there are none), leaving it returns to
-    // the entry row it was opened from — same convention as this screen's
-    // other transient panels (pairing QR panel, above). Retried across a few
-    // frames like every other cross-composable focus grab in this app (see
-    // LibraryScreen/HomeScreen's matching comments) — RelaySettingsPane's
-    // content isn't necessarily composed yet on the very first frame this
-    // effect runs.
     LaunchedEffect(showingRelaySettings) {
         val target = if (showingRelaySettings) firstRelayRowFocus ?: addRelayFocus else relaySettingsEntryFocus
         repeat(5) {
@@ -254,14 +199,6 @@ fun SettingsScreen(
         }
     }
 
-    // Relay list changes take effect immediately rather than waiting on the
-    // screen's big Save button below — the add flow already behaved this
-    // way (a relay shows up mid-screen as soon as the phone submits it), and
-    // Make default / Remove / Edit need the same immediacy so Home's room
-    // polling never disagrees with what Settings shows. Reads the currently
-    // *persisted* settings rather than the in-progress `settings` var, so an
-    // unsaved pending edit to something unrelated (bitrate, subtitles, ...)
-    // doesn't get silently committed early by a relay change.
     fun persistRelays(newRelays: List<RelayEntry>) {
         settings = settings.copy(relays = newRelays)
         scope.launch {
@@ -270,10 +207,6 @@ fun SettingsScreen(
         }
     }
 
-    // Shared by "Add a relay" and each row's "Edit" button — both hand off
-    // to the same phone-pairing QR panel; editingId is null for a fresh add
-    // (appends a new entry) or a relay's id to update that entry in place
-    // instead.
     fun startPairing(editingId: String?, prefillNickname: String, prefillUrl: String) {
         pairingError = null
         editingRelayId = editingId
@@ -286,14 +219,6 @@ fun SettingsScreen(
                     pairingServer = null
                     pairingUrl = null
                     editingRelayId = null
-                    // The QR panel (and its focused Cancel button, if that's
-                    // what the remote was last aimed at) is about to be
-                    // removed from composition by clearing pairingUrl above
-                    // — without an explicit target, Compose's focus-loss
-                    // fallback can escape to the nav drawer, and a buffered
-                    // remote press landing there reads as "kicked out of
-                    // Settings" (same bug class as this app's other
-                    // documented focus-escape fixes).
                     runCatching { addRelayFocus.requestFocus() }
                     scope.launch {
                         testingRelayName = nickname
@@ -366,8 +291,6 @@ fun SettingsScreen(
                 pairingServer = null
                 pairingUrl = null
                 editingRelayId = null
-                // Same focus-escape risk as onSubmitted above — this Cancel
-                // button is the thing that's about to leave composition.
                 runCatching { addRelayFocus.requestFocus() }
             },
         )
@@ -385,13 +308,6 @@ fun SettingsScreen(
             Text("Settings", style = ShumTypography.displaySmall)
             Spacer(Modifier.height(32.dp))
 
-            // Design spec section 14: grouped settings — a 1dp rule at the
-            // AppSurfaceVariant/AppBackground surface step plus an uppercase
-            // kicker label per group, ordered by how often each is touched
-            // (libraries/relays change; playback/chat are set once). The
-            // first group gets no rule above it (redundant against the page
-            // title); every group's internal row implementation is otherwise
-            // completely unchanged.
             SettingsGroup(title = "Libraries", showRule = false) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Available sources")
@@ -400,10 +316,6 @@ fun SettingsScreen(
                     sourcesError != null -> Text("Couldn't load sources: $sourcesError")
                     sources.isEmpty() -> Text("No sources found")
                     else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // ListItem handles its own focused/selected contrast,
-                        // unlike the old Button+RadioButton combo which needed
-                        // manually tracking focus to swap the radio's colors
-                        // so it didn't blend into the button's focus fill.
                         sources.forEachIndexed { index, source ->
                             val selected = settings.selectedServerId == source.machineIdentifier
                             ShumListItem(
@@ -433,9 +345,6 @@ fun SettingsScreen(
                 if (hint != null) {
                     Text(hint, color = NeonPurple)
                 }
-                // Design spec 09d: a sub-menu, not a settings row — opens the
-                // relay list as its own screen with a back breadcrumb so it
-                // never lengthens this column as relays are added.
                 val defaultRelay = settings.relays.firstOrNull { it.isDefault }
                 FocusableSurface(
                     onClick = { showingRelaySettings = true },
@@ -469,11 +378,6 @@ fun SettingsScreen(
                     }
                 }
 
-                // Design spec section 14: "a client-side cap on rooms this
-                // device hosts, sent with the room when it opens; the
-                // relay's own constant is still the ceiling." The row's
-                // right-hand value is the number alone — the label already
-                // says seats.
                 FocusableSurface(
                     onClick = { maxSeatsMenuExpanded = true },
                     modifier = Modifier
@@ -506,13 +410,6 @@ fun SettingsScreen(
             Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Max transcode video bitrate")
-                // Used to need horizontalScroll to avoid squeezing the last
-                // preset into a sliver, but that also clipped the first/last
-                // chip's own focus glow at the scroll viewport's edge.
-                // Smaller chips (compact padding, shorter labels — see
-                // BITRATE_PRESETS) now fit all four on screen at once, so
-                // the scroll container (and the clipping that came with it)
-                // isn't needed at all.
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     AppSettings.BITRATE_PRESETS.forEachIndexed { index, preset ->
                         val bitrateSelected = settings.maxVideoBitrateKbps == preset.kbps
@@ -522,13 +419,6 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .let { if (index == 0) it.focusRequester(bitrateRowFocus) else it }
                                 .focusProperties {
-                                    // Was pointing at addRelayFocus/cancelPairingFocus, which
-                                    // only live inside RelaySettingsPane now (see the §09d
-                                    // sub-menu extraction) — those FocusRequesters have no
-                                    // attached target while the main settings list is what's
-                                    // showing, so "up" from here silently did nothing,
-                                    // trapping focus at this row. maxHostSeatsFocus is the row
-                                    // directly above this one in the main list now.
                                     up = maxHostSeatsFocus
                                     down = forceBurnFocus
                                 },
@@ -610,20 +500,12 @@ fun SettingsScreen(
         NeonScrollbar(scrollState = scrollState, modifier = Modifier.padding(vertical = 48.dp, horizontal = 12.dp))
     }
 
-    // Dimmed, not hidden — same convention as LibraryScreen's Sort/Filter
-    // menus (design spec 06b), reused here per section 14's own note that
-    // this is "exactly the section 06b Sort menu, reused with nothing
-    // changed."
     if (maxSeatsMenuExpanded) {
         Box(modifier = Modifier.fillMaxSize().background(AppScrim.copy(alpha = 0.4f)))
         MaxSeatsMenu(
             selected = settings.maxHostSeats,
             rowFocuses = maxSeatsOptionFocuses,
             onSelect = { value ->
-                // Unlike the relay list (which needs to take effect
-                // immediately so Home's polling never disagrees), this is a
-                // plain setting like bitrate/subtitles — staged into
-                // `settings` and persisted by the screen's own Save button.
                 settings = settings.copy(maxHostSeats = value)
                 maxSeatsMenuExpanded = false
                 runCatching { maxHostSeatsFocus.requestFocus() }
@@ -634,17 +516,8 @@ fun SettingsScreen(
     }
 }
 
-// Design spec section 14: the group label is the same uppercase mono kicker
-// used for row headers elsewhere, always in the muted tone — accent here
-// would compete with the focused row, the only thing on this screen that
-// should pull the eye.
 private val settingsGroupLabelStyle = TextStyle(fontSize = 12.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Medium)
 
-// One rule + one label per settings group. 26dp above the rule, 14dp to the
-// label, 6dp to the first row — the space above a group is always larger
-// than the space inside it, which is what actually does the grouping.
-// showRule=false for the very first group: a divider between the page title
-// and its content would be a line for its own sake.
 @Composable
 private fun SettingsGroup(title: String, showRule: Boolean, content: @Composable () -> Unit) {
     Column {
@@ -659,12 +532,6 @@ private fun SettingsGroup(title: String, showRule: Boolean, content: @Composable
     }
 }
 
-// Design spec 09d: "Settings › Relay settings opens it as its own screen
-// with a back breadcrumb, so the relay list never lengthens the top-level
-// column." All the actual relay-list behavior (add/edit/remove/make-default,
-// phone pairing, the reachability test line) is unchanged from before this
-// was a sub-menu — the state and closures still live in SettingsScreen, this
-// composable is purely a different place to render them.
 @Composable
 private fun RelaySettingsPane(
     settings: AppSettings,
@@ -734,10 +601,6 @@ private fun RelaySettingsPane(
                     )
                 }
 
-                // Design spec 09d: same phone hand-off as first-run setup —
-                // the TV never asks anyone to type a wss:// address on a
-                // D-pad. Invoked fresh per attempt (add or edit), same as it
-                // always was.
                 FocusableSurface(
                     onClick = onAddRelay,
                     modifier = Modifier
@@ -815,13 +678,6 @@ private fun RelaySettingsPane(
     }
 }
 
-// Design spec section 14: "Exactly the section 06b Sort menu, reused with
-// nothing changed" — anchored under its row, left edges aligned, select
-// applies immediately and closes, Back closes with no change, no Apply/
-// Cancel. Eleven entries (unlike Sort's handful), so this one scrolls; a
-// NeonScrollbar sits beside the list rather than LibraryScreen's own
-// private SortMenu/FilterMenu (kept local to this screen instead of
-// extracting a shared component neither screen asked for).
 @Composable
 private fun MaxSeatsMenu(
     selected: Int,
@@ -891,25 +747,14 @@ private fun MaxSeatsMenu(
     }
 }
 
-// Stable per-relay focus targets, keyed (by the caller) on entry.id rather
-// than list position — see the relayRowFocuses comment in SettingsScreen
-// for why identity has to survive add/remove/make-default.
 private class RelayRowFocus {
     val makeDefault = FocusRequester()
     val edit = FocusRequester()
     val remove = FocusRequester()
 }
 
-// The leftmost real button in a row — default rows skip "Make default", so
-// their leftmost is "Edit" instead. Used to target vertical D-pad moves
-// between rows without caring which buttons a given row actually has.
 private fun RelayRowFocus.leftmost(entry: RelayEntry): FocusRequester = if (entry.isDefault) edit else makeDefault
 
-// Design spec 09d: one row per configured relay — dot, nickname (+ Default
-// badge) and a status line (room count / not responding) on the left, real
-// buttons on the right. The URL itself isn't shown — three actions (make
-// default, edit, remove) don't fit a click/hold-to-remove gesture model
-// cleanly, so each gets its own focusable button instead.
 @Composable
 private fun RelayRow(
     entry: RelayEntry,
@@ -946,8 +791,6 @@ private fun RelayRow(
             }
             Text(relayStatusLabel(status), color = AppOnSurfaceVariant)
         }
-        // 16dp, not 14's own glow radius — anything tighter and a focused
-        // button's glow washes over its neighbor's border.
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             if (!entry.isDefault) {
                 ShumOutlinedButton(
@@ -998,9 +841,6 @@ private fun relayStatusLabel(status: Pair<Boolean, Int>?): String = when {
     else -> "${status.second} room${if (status.second == 1) "" else "s"}"
 }
 
-// Design spec section 07: four focusable 2×2 tiles, each a miniature of the
-// player screen with the message stack drawn in its corner — cheaper to read
-// from the couch than a text list, and one D-pad press per option.
 @Composable
 private fun ChatCornerPicker(
     selected: ChatOverlayCorner,
@@ -1093,9 +933,6 @@ private fun ChatCornerTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Newest message renders nearest the tile's marked corner in every case:
-    // top corners stack a bright (newest) bar above a dim (older) one, bottom
-    // corners put the bright bar last so it lands physically at the bottom.
     val stacksDownward = corner == ChatOverlayCorner.TOP_START || corner == ChatOverlayCorner.TOP_END
     val stackAlignment = when (corner) {
         ChatOverlayCorner.TOP_START -> Alignment.TopStart

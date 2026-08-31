@@ -94,10 +94,6 @@ private const val CONTROLS_HIDE_DELAY_MS = 3_000L
 private const val PROGRESS_POLL_INTERVAL_MS = 200L
 private const val SKIP_INCREMENT_MS = 10_000L
 
-// Held-seek acceleration: a single tap moves 10s, but the step grows the
-// longer the button stays down (event.repeatCount climbs each ~50ms while
-// held), matching the big streaming apps' hold-to-fast-seek feel instead of
-// crawling through a movie 10s at a time.
 private fun seekIncrementForHold(repeatCount: Int): Long = when {
     repeatCount == 0 -> 10_000L
     repeatCount < 8 -> 20_000L
@@ -129,11 +125,6 @@ fun PlayerScreen(
     val part = remember(detail) { detail.media.firstOrNull()?.parts?.firstOrNull() }
     val subtitleChoices = remember(part) { part?.let { subtitleOptions(it) } ?: emptyList() }
 
-    // Local to this device only — this is what makes subtitle choice
-    // independent per viewer even though everyone's watching off the same
-    // Plex item. decidePlayback/PlexPlayerFactory never call the
-    // PUT /library/parts "selected stream" endpoint, so nothing here writes
-    // back to shared account state on the server.
     var subtitleStreamId by remember(detail) { mutableStateOf(defaultSubtitleStreamId(detail)) }
     var restartPositionMs by remember(detail) { mutableStateOf(detail.viewOffset ?: 0L) }
     var activePlayer by remember(detail) { mutableStateOf<ExoPlayer?>(null) }
@@ -142,19 +133,6 @@ fun PlayerScreen(
         decidePlayback(detail, subtitleStreamId, currentSettings.forceBurnSubtitles)
     }
 
-    // Only a mode change — direct play <-> a burn-required transcode, a
-    // different burn-required stream, or (while transcoding) a different
-    // bitrate — needs a whole new ExoPlayer/transcode session; there's no
-    // live "swap the subtitle" or "reopen the HLS session at a new bitrate"
-    // API on an existing session. Switching between two directly-played text
-    // tracks (or off) doesn't touch this key, so PlayerSession patches the
-    // running player in place instead of restarting it — see its own
-    // LaunchedEffect(decision). Bitrate is likewise irrelevant to direct
-    // play (it only ever feeds buildTranscodeUrl), so it's left out of that
-    // branch's identity. key() tears down and rebuilds only when
-    // playerIdentity itself changes, picking up wherever playback left off
-    // via restartPositionMs (captured from the outgoing player right before
-    // the switch, in onSelectSubtitle/onSelectBitrate below).
     val playerIdentity = when (decision) {
         is PlaybackDecision.Transcode -> decision to currentSettings.maxVideoBitrateKbps
         is PlaybackDecision.DirectPlay -> decision.part.id
@@ -210,12 +188,6 @@ private fun PlayerSession(
     val scope = rememberCoroutineScope()
 
     val reporter = remember(server, clientIdentifier) { TimelineReporter(server, clientIdentifier) }
-    // Deliberately keyless: this player is scoped to this PlayerSession's
-    // whole lifetime (one per playerIdentity, per the parent's key()), so it
-    // should only ever be built once from whatever `decision`/
-    // `startPositionMs` were current at that first composition — later
-    // direct-play subtitle changes arrive as recompositions of the same
-    // `decision` parameter and are applied live below instead.
     val player = remember {
         PlexPlayerFactory.create(
             context = context,
@@ -237,29 +209,12 @@ private fun PlayerSession(
     val phase by sync.phase.collectAsState()
     val waitingOn by sync.waitingOn.collectAsState()
 
-    // Everything below owns the on-screen chrome entirely in Compose — no
-    // Media3 PlayerControlView involved (useController=false on the
-    // PlayerView further down). PlayerControlView's own key-swallowing,
-    // auto-show/hide timing, and per-button enabled-state logic were fighting
-    // this screen's own state at every turn (a D-pad press while its
-    // controller wasn't yet "fully visible" got silently eaten, and its
-    // subtitle button re-grayed itself any time ExoPlayer reported zero
-    // native text tracks — exactly the burn-required/transcoded cases this
-    // app's own subtitle picker exists for). Owning the whole surface here
-    // means there's only ever one system deciding what a keypress does.
     var controlsVisible by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var subtitleMenuOpen by remember { mutableStateOf(false) }
     var bitrateMenuOpen by remember { mutableStateOf(false) }
-    // Greets the user with focus already on Play/Pause, same as every show()
-    // afterward — see the onPreviewKeyEvent handler below for the reveal
-    // paths that re-arm this.
     var pendingPlayPauseFocus by remember { mutableStateOf(true) }
-    // Bumped on every interaction while controls are visible so the auto-hide
-    // effect below restarts its delay — without this, holding a seek or
-    // browsing the transport row for longer than the hide delay would still
-    // yank the chrome away mid-interaction.
     var interactionTick by remember { mutableStateOf(0) }
     var seekBar by remember { mutableStateOf<DefaultTimeBar?>(null) }
     val screenFocusRequester = remember { FocusRequester() }
@@ -281,17 +236,10 @@ private fun PlayerSession(
         }
     }
 
-    // Focus has nowhere to live once the controls row leaves composition —
-    // hand it back to the screen root so the hidden-state branch of
-    // onPreviewKeyEvent below keeps receiving D-pad events.
     LaunchedEffect(controlsVisible) {
         if (!controlsVisible) screenFocusRequester.requestFocus()
     }
 
-    // Media3's own auto-hide only reschedules on an isPlaying state *change*;
-    // driving it here off both playback state and every interaction avoids
-    // relying on that internal scheduling and fixes the "hides itself mid
-    // scrub" case interactionTick exists for.
     LaunchedEffect(controlsVisible, subtitleMenuOpen, bitrateMenuOpen, isPlaying, interactionTick) {
         if (controlsVisible && !subtitleMenuOpen && !bitrateMenuOpen) {
             delay(CONTROLS_HIDE_DELAY_MS)
@@ -299,9 +247,6 @@ private fun PlayerSession(
         }
     }
 
-    // Drives the seek bar's position/buffered/duration while it's on screen;
-    // nothing else calls setPosition on it now that there's no
-    // PlayerControlView update loop underneath.
     LaunchedEffect(controlsVisible, player) {
         if (!controlsVisible) return@LaunchedEffect
         while (true) {
@@ -317,14 +262,6 @@ private fun PlayerSession(
         val position = player.currentPosition.coerceAtLeast(0)
         sync.stop()
         player.stop()
-        // NonCancellable, not a plain launch — onExit() below flips app state
-        // synchronously, which disposes this whole PlayerSession (and cancels
-        // `scope`, since it's this composable's own rememberCoroutineScope) on
-        // the next recomposition. Without this, the network round-trip inside
-        // report() almost never finishes before that cancellation lands, so
-        // the one report that's supposed to be authoritative silently never
-        // sends — Plex's resume point stays whatever the last periodic report
-        // happened to catch, up to REPORT_INTERVAL_MS stale.
         scope.launch {
             withContext(NonCancellable) {
                 reporter.report(detail.ratingKey, "stopped", position, duration)
@@ -341,10 +278,6 @@ private fun PlayerSession(
         }
     }
 
-    // The player isn't otherwise tied to the Activity lifecycle, so leaving
-    // the app (home button, switching apps) doesn't stop it — audio and
-    // playback kept running in the background. Pausing on ON_STOP matches
-    // what every other TV player app does.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, player) {
         val observer = LifecycleEventObserver { _, event ->
@@ -389,19 +322,11 @@ private fun PlayerSession(
                 val isFreshKeyDown = keyEvent.nativeKeyEvent.repeatCount == 0
                 if (!controlsVisible) {
                     when (keyEvent.key) {
-                        // Netflix/YouTube-style: seeking while the chrome is
-                        // hidden doesn't require revealing it first — the
-                        // chrome is a navigation aid, not a gate in front of
-                        // the single most common remote gesture.
                         Key.DirectionLeft, Key.DirectionRight -> {
                             val direction = if (keyEvent.key == Key.DirectionRight) 1 else -1
                             seekBy(direction * seekIncrementForHold(keyEvent.nativeKeyEvent.repeatCount))
                             return@onPreviewKeyEvent true
                         }
-                        // Select is the deliberate "reveal and act" gesture —
-                        // toggling playback in the same press it reveals the
-                        // chrome matches what a remote's OK button does on
-                        // every other TV player.
                         Key.DirectionCenter, Key.Enter -> {
                             if (isFreshKeyDown) {
                                 togglePlayPause()
@@ -410,8 +335,6 @@ private fun PlayerSession(
                                 return@onPreviewKeyEvent true
                             }
                         }
-                        // Up/Down don't have an obvious hidden-state meaning
-                        // of their own — just reveal and focus, one press.
                         Key.DirectionUp, Key.DirectionDown -> {
                             if (isFreshKeyDown) {
                                 controlsVisible = true
@@ -582,12 +505,6 @@ private fun PlayerControlsBar(
             modifier = Modifier.fillMaxWidth(),
             factory = { ctx ->
                 DefaultTimeBar(ctx).apply {
-                    // DefaultTimeBar has no gradient-stroke concept like the
-                    // Compose two-tone borders elsewhere, so the two-tone
-                    // treatment here is the played fill in the deeper
-                    // NeonPurple with the scrubber (the focal, "active"
-                    // point) in the lighter NeonPurpleGlow — same pairing,
-                    // closest equivalent this component supports.
                     setPlayedColor(NeonPurple.toArgb())
                     setScrubberColor(NeonPurpleGlow.toArgb())
                     setBufferedColor(AppWhite.copy(alpha = 0.4f).toArgb())
@@ -660,13 +577,6 @@ private fun SubtitleMenu(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(text = "Subtitles", color = AppWhite, style = ShumTypography.titleMedium)
-        // Plain Column had no height cap, so a title with many language
-        // tracks just grew past the screen edge — D-pad Down still moved
-        // focus onto those off-screen rows, but with nothing to auto-scroll
-        // the container, the highlight visually vanished. LazyColumn caps
-        // the visible height and scrolls the focused row into view on its
-        // own, the same way HomeScreen's rows already rely on for
-        // focus-driven scrolling.
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             itemsIndexed(options) { index, option ->
                 val selected = option.streamId == selectedStreamId
@@ -678,11 +588,6 @@ private fun SubtitleMenu(
                     modifier = Modifier
                         .focusRequester(focusRequesters[index])
                         .focusProperties {
-                            // Cancel, not Default, at every boundary — Default lets
-                            // the search continue past this menu (Left/Right always,
-                            // Up/Down at the list ends) and escape to the nav drawer,
-                            // same bug class as this app's other documented
-                            // focus-escape fixes.
                             up = if (index > 0) focusRequesters[index - 1] else FocusRequester.Cancel
                             down = if (index < focusRequesters.lastIndex) focusRequesters[index + 1] else FocusRequester.Cancel
                             left = FocusRequester.Cancel
@@ -710,10 +615,6 @@ private fun BitrateMenu(
         runCatching { focusRequesters.getOrNull(selectedIndex)?.requestFocus() }
     }
 
-    // Fixed, short preset list — unlike SubtitleMenu's language tracks, this
-    // never grows past screen height, so a plain Column (no LazyColumn/height
-    // cap) is enough. Wider than SubtitleMenu since the friendly quality
-    // labels ("20 Mbps (High quality)") run longer than a language name.
     Column(
         modifier = modifier
             .width(420.dp)

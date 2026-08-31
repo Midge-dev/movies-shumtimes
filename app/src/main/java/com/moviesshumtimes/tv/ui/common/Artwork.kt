@@ -45,13 +45,6 @@ import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
-// Design spec section 05c "Artwork loading state" ("lost signal"): every
-// poster/still/backdrop slot in the app shows this instead of a blank card
-// or a generic spinner while its image is in flight — a blank card reads as
-// a bug, a spinner reads as a form submitting. ShumArtwork is a drop-in
-// replacement for a plain Coil AsyncImage call that adds this placeholder
-// plus a 220ms cross-fade once the real artwork lands.
-
 private const val FRAME_HOLD_MS = 333L
 private const val ROLL_DURATION_MS = 2800
 private const val ROLL_BAR_HEIGHT_FRACTION = 0.34f
@@ -64,13 +57,6 @@ private val VignetteColor = Color(0xFFAD2BD7).copy(alpha = 0.22f)
 private val RollBarColor = Color(0xFFE795FC).copy(alpha = 0.11f)
 private val ScanlineColor = Color.Black.copy(alpha = 0.22f)
 
-// Six real "lost signal" frames pulled from a captured TV static clip
-// (grayscale, ~480x270), decoded once and shared by every placeholder on
-// screen — matching the design spec's own "generated once" guidance for
-// the noise layer, just sourced from real footage instead of a procedural
-// random tile. Cycling between distinct frames (rather than translating one
-// tiled texture) also sidesteps the visible-seam problem a small repeating
-// photo would otherwise have.
 private object StaticNoiseFrames {
     private val resIds = intArrayOf(
         R.drawable.static_noise_1,
@@ -151,11 +137,6 @@ fun ShumArtwork(
 private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDelayMs: Int) {
     val context = LocalContext.current
     val frames = remember(context) { StaticNoiseFrames.get(context) }
-    // Random start + random (not sequential) next frame each tick, so two
-    // simultaneously-loading cards showing the same clip don't flicker in
-    // visible lockstep. 3fps, not per-frame — true 60fps grain is expensive
-    // on a Fire TV stick and physically uncomfortable at couch distance
-    // (per spec).
     var frameIndex by remember { mutableIntStateOf(Random.nextInt(frames.size)) }
     LaunchedEffect(frames) {
         while (true) {
@@ -166,9 +147,6 @@ private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDe
     val frame = frames[frameIndex]
 
     val transition = rememberInfiniteTransition(label = "posterPlaceholder")
-    // Ceiling is noiseOpacity itself (the spec's own "cap the grain so a
-    // five-across row never strobes" guard), not the CSS mockup's literal
-    // .5→.85 breathe range, which would blow past that cap.
     val breathe by transition.animateFloat(
         initialValue = noiseOpacity * 0.6f,
         targetValue = noiseOpacity,
@@ -178,11 +156,6 @@ private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDe
         ),
         label = "breathe",
     )
-    // staggerDelayMs phase-shifts this specific animation (via
-    // StartOffsetType.FastForward) so a grid of these doesn't pulse in
-    // unison — the frame cycling and breathing above intentionally stay
-    // unstaggered/shared-looking, per spec's own guidance which only calls
-    // out the roll bar's phase for staggering.
     val rollProgress by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -203,10 +176,6 @@ private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDe
                     0.5f to RollBarColor,
                     1f to Color.Transparent,
                 )
-                // Compose's radialGradient has no independent x/y radius, so
-                // this approximates the spec's 120%/80% ellipse with a
-                // circle sized to the larger dimension — close enough for an
-                // accent tint that fades to nothing well before the edges.
                 val vignetteBrush = Brush.radialGradient(
                     colors = listOf(VignetteColor, Color.Transparent),
                     center = Offset(size.width / 2f, size.height / 2f),
@@ -214,10 +183,6 @@ private fun PosterPlaceholder(modifier: Modifier, noiseOpacity: Float, staggerDe
                 )
                 val dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
                 onDrawBehind {
-                    // Stretched to fill rather than tiled — a still frame
-                    // has no seamless edge, so tiling it would show a
-                    // repeating grid; noise has no directional structure, so
-                    // a mild stretch to an odd aspect ratio isn't visible.
                     drawImage(
                         image = frame,
                         dstSize = dstSize,

@@ -15,11 +15,6 @@ import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
-// A themed replacement for the platform's default scrollbar (tv-material3
-// has no scrollbar widget of its own) — draws a track the height of
-// whatever it's laid out alongside (a sibling verticalScroll Column) and a
-// two-tone purple thumb sized/positioned from that ScrollState, matching
-// the app's NeonPurple button border/glow treatment.
 @Composable
 fun NeonScrollbar(scrollState: ScrollState, modifier: Modifier = Modifier) {
     val thumbBrush = Brush.verticalGradient(listOf(NeonPurpleGlow, NeonPurple))

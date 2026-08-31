@@ -98,9 +98,6 @@ fun LibraryScreen(
     val decadeFocuses = remember(availableDecades) { availableDecades.associateWith { FocusRequester() } }
     val dateAddedFocuses = remember { DateAddedBucket.entries.associateWith { FocusRequester() } }
 
-    // Only one of these can be open at a time — the two BackHandlers stay
-    // independently gated so Back always closes whichever menu is showing
-    // and hands focus back to the trigger that opened it.
     BackHandler(enabled = sortMenuExpanded) {
         sortMenuExpanded = false
         runCatching { sortButtonFocus.requestFocus() }
@@ -110,19 +107,10 @@ fun LibraryScreen(
         runCatching { filterButtonFocus.requestFocus() }
     }
 
-    // AppNavigationDrawer wraps this screen now, and its sidebar is the
-    // first focusable thing in the composition — without an explicit
-    // request here, D-pad focus defaults to (and gets stuck in) the nav
-    // rail instead of the library content on every entry. Keyed on the
-    // section so switching sections from the drawer re-focuses content
-    // too, not just the very first time this screen appears.
     LaunchedEffect(selectedSection.key) {
         runCatching { searchFocus.requestFocus() }
     }
 
-    // Design spec section 06b: focus opens on the currently applied option,
-    // not the first row — reopening Sort with "Date Added" active puts focus
-    // on Date Added.
     LaunchedEffect(sortMenuExpanded) {
         if (!sortMenuExpanded) return@LaunchedEffect
         runCatching { sortRowFocuses.getValue(sortMode).requestFocus() }
@@ -163,8 +151,6 @@ fun LibraryScreen(
                         .focusRequester(searchFocus)
                         .focusProperties { down = sortButtonFocus },
                 )
-                // States its current value in the label so it never needs a
-                // badge — see FilterTrigger below for the one that does.
                 ShumOutlinedButton(
                     onClick = { sortMenuExpanded = true },
                     modifier = Modifier
@@ -196,26 +182,16 @@ fun LibraryScreen(
                             server = server,
                             item = item,
                             onClick = { onSelectItem(item) },
-                            // Stagger by column, not absolute list index, so
-                            // late items in a long library don't inherit an
-                            // absurd multi-second delay — design spec 05c's
-                            // "index × 120ms" guard against a grid pulsing
-                            // in unison only needs to vary across one row.
                             staggerDelayMs = (index % GRID_COLUMNS) * 120,
                         )
                     }
                 }
-                // The grid stays mounted (empty) behind this rather than
-                // being replaced by an illustration/card — design spec
-                // section 06b.
                 if (displayedItems.isEmpty()) {
                     Text("Nothing matches these filters.", modifier = Modifier.padding(32.dp))
                 }
             }
         }
 
-        // Dimmed, not hidden — the result count in the grid behind stays
-        // visible while a menu is open.
         if (sortMenuExpanded || filtersExpanded) {
             Box(modifier = Modifier.fillMaxSize().background(AppScrim.copy(alpha = 0.4f)))
         }
@@ -268,10 +244,6 @@ fun LibraryScreen(
 
 private val MenuShape = RoundedCornerShape(8.dp)
 
-// Design spec section 06b: idle transparent, applied-but-unfocused keeps a
-// flat @35% accent fill (matching the nav rail's own selected treatment),
-// focused always wins with a solid accent fill plus the standard gradient
-// ring + glow — the two stack rather than replace each other.
 private val menuRowColors = ShumColors(
     container = Color.Transparent,
     content = AppWhite,
@@ -286,10 +258,6 @@ private fun MenuSectionHeader(label: String) {
     Text(label, style = ShumTypography.titleMedium, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
 }
 
-// Replaces the old full-width FilterChip rows — a chip's pill shape reads
-// wrong at full width, and its own selected affordance fought the accent
-// fill this needs instead. `dimmed` marks an option with 0 matches under the
-// other currently-active filters: it stays focusable, just less prominent.
 @Composable
 private fun MenuOptionRow(
     label: String,
@@ -322,8 +290,6 @@ private fun MenuOptionRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Reserved-width leading column so labels line up whether or
-            // not a row happens to be checked.
             Box(modifier = Modifier.width(16.dp)) {
                 if (applied) Text("✓")
             }
@@ -332,10 +298,6 @@ private fun MenuOptionRow(
     }
 }
 
-// D-pad contract (design spec 06b): Up/Down move within the menu without
-// wrapping at either end; Left/Right do nothing — the menu owns the
-// horizontal axis so a stray press can't jump to the grid behind it; Select
-// applies and, for Sort, closes the menu.
 @Composable
 private fun SortMenu(
     selected: SortMode,
@@ -371,13 +333,6 @@ private fun SortMenu(
     }
 }
 
-// Wider than Sort and scrolls: one column of grouped rows (Genre, Release
-// Date, Date Added), not three side-by-side, so the nav rail and the grid's
-// horizontal rows behind stay reachable. Filter stays open on select so
-// several groups can be set in one visit — only Back or losing focus closes
-// it. "Clear all" only appears once something is applied; it sits at the top
-// of the focus chain rather than the spec mockup's top-right link, which a
-// D-pad has no way to reach directly.
 @Composable
 private fun FilterMenu(
     items: List<PlexLibraryItem>,
@@ -490,10 +445,6 @@ private fun FilterMenu(
     }
 }
 
-// Filter's trigger states a count instead of its value (there's no single
-// value to state across three independent groups): idle+unapplied is
-// outlined like Sort, ≥1 applied switches to a solid accent fill that
-// persists regardless of focus, with a white badge replacing the caret.
 private val FilterTriggerShape = CircleShape
 
 @Composable
@@ -559,20 +510,12 @@ private fun LibraryPoster(
                     model = PlexImageUrl.of(server, item.thumb),
                     contentDescription = item.title,
                     modifier = Modifier.fillMaxSize(),
-                    // Design spec 05c: grain drops to 40% in a 5-across grid
-                    // so it never strobes across a whole page of posters.
                     noiseOpacity = 0.4f,
                     staggerDelayMs = staggerDelayMs,
                 )
             }
         },
         title = {
-            // StandardCardContainer's default gap between the bordered image
-            // and the title below it is too tight for our thicker focus
-            // border — the title visually collides with it when focused.
-            // 8dp wasn't enough once the glow (not just the border stroke)
-            // is accounted for, since CardGlow's elevation shadow extends
-            // further than a flat border (reported as still too tight).
             Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 16.dp))
         },
     )

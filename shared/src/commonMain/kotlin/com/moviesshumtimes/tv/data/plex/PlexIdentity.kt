@@ -6,8 +6,6 @@ import kotlin.uuid.Uuid
 
 private const val CLIENT_IDENTIFIER_KEY = "client_identifier"
 
-// Plex requires a stable X-Plex-Client-Identifier on every request, generated
-// once per install and reused forever after — not a per-session value.
 @OptIn(ExperimentalUuidApi::class)
 class PlexIdentity(private val settings: ObservableSettings) {
     fun getOrCreateClientIdentifier(): String {

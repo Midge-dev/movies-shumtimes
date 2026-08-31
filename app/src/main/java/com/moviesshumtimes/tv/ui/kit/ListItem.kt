@@ -15,11 +15,6 @@ import androidx.compose.ui.unit.dp
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
-// Design spec section 06 (nav rail's own row language, reused everywhere a
-// selectable row appears — Settings' server list, the player's subtitle/
-// quality pickers): idle transparent, selected keeps a flat @35% accent
-// fill, focused always wins with a solid accent fill — never disabled here
-// since none of this app's ListItem rows are ever shown disabled.
 private val ListItemShape = RoundedCornerShape(8.dp)
 private val ListItemPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
 

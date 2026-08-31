@@ -45,21 +45,11 @@ import com.moviesshumtimes.tv.ui.theme.AppWhite
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-// Shown once, right after Plex login, when no relay URL is saved yet —
-// makes watch-together setup part of first launch instead of something you
-// only discover by finding it in Settings later. "Skip for now" is kept
-// deliberately available though: sync has always been a bonus on top of
-// local playback here, never a requirement, and someone who only wants to
-// browse/watch solo shouldn't be blocked from reaching their library.
 @Composable
 fun RelaySetupScreen(onDone: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var relayUrl by remember { mutableStateOf("") }
-    // Manual entry has no nickname field of its own (typing two fields on a
-    // D-pad remote is painful) — "My relay" is the default, same as the
-    // one-time migration for anyone upgrading from the old single-URL
-    // setting. Phone-pairing captures a real nickname (see PairingServer).
     var relayNickname by remember { mutableStateOf("My relay") }
 
     var pairingServer by remember { mutableStateOf<PairingServer?>(null) }
@@ -89,11 +79,6 @@ fun RelaySetupScreen(onDone: () -> Unit) {
 
     val scrollState = rememberScrollState()
 
-    // Plain Box+Center had no scrollbar at all — when the QR pairing panel
-    // is showing, the content can run taller than the screen, and Save &
-    // continue/Skip for now scroll out of view with zero indication
-    // scrolling is even possible (read as "cut off buttons"). Same
-    // NeonScrollbar SettingsScreen already uses for the same reason.
     Row(modifier = Modifier.fillMaxSize().padding(48.dp)) {
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Column(
@@ -131,11 +116,6 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                                     pairingServer?.stop()
                                     pairingServer = null
                                     pairingUrl = null
-                                    // The QR panel (and its focused Cancel button) is about
-                                    // to leave composition — without an explicit target the
-                                    // focus search can escape to the nav drawer instead of
-                                    // landing on Save, same bug class as this app's other
-                                    // documented focus-escape fixes.
                                     runCatching { saveFocus.requestFocus() }
                                 }
                             },
@@ -185,8 +165,6 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                                     pairingServer?.stop()
                                     pairingServer = null
                                     pairingUrl = null
-                                    // Same escape-to-nav-drawer risk as the onSubmitted path
-                                    // above — this button itself is about to disappear.
                                     runCatching { pairButtonFocus.requestFocus() }
                                 },
                                 modifier = Modifier

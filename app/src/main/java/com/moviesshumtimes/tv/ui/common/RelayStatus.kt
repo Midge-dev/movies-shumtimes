@@ -41,11 +41,6 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import kotlinx.coroutines.delay
 
-// Design spec 09d: a staged connection-status ladder. Distinguishing a fast
-// connect (say nothing) from a slow relay cold-start (say why) requires
-// tracking elapsed time against the real ConnectionState, not just
-// reflecting it immediately the way PlayerScreen's "Sync: connecting…"
-// label already does.
 sealed interface RelayStatus {
     data object Silent : RelayStatus
     data object Waking : RelayStatus
@@ -58,14 +53,9 @@ sealed interface RelayStatus {
 private val AmberGrey = Color(0xFFB89A6A)
 
 private const val WAKING_AT_MS = 2_000L
-private const val FAILED_AT_MS = 75_000L // WAKING_AT_MS + this file's own 73_000 delay below
+private const val FAILED_AT_MS = 75_000L
 private const val CONNECTED_CONFIRM_VISIBLE_MS = 2_000L
 
-// RelayClient cycles CONNECTING <-> RECONNECTING on every backoff retry
-// (1s -> 30s cap) during a single cold-start wait, so this keys the timing
-// effect on a coarser derived boolean rather than the raw enum — keying on
-// connectionState directly would reset the 2s/75s clocks on every retry
-// flip and Failed would never actually trigger.
 @Composable
 fun rememberRelayStatus(connectionState: ConnectionState): RelayStatus {
     var status by remember { mutableStateOf<RelayStatus>(RelayStatus.Silent) }
@@ -99,9 +89,6 @@ fun rememberRelayStatus(connectionState: ConnectionState): RelayStatus {
     return status
 }
 
-// Persistent, small indicator reused in the Lobby header, Settings' relay
-// rows, and Home's per-card relay label — the only piece of this ladder
-// that's still visible once the staged line itself has dismissed.
 @Composable
 fun RelayStatusDot(status: RelayStatus, modifier: Modifier = Modifier) {
     val color = when (status) {
@@ -113,11 +100,6 @@ fun RelayStatusDot(status: RelayStatus, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier.size(8.dp)) { drawCircle(color = color) }
 }
 
-// The staged line itself: sweep-only while Silent, spinner+copy once
-// Waking, a self-dismissing checkmark on connect, nothing once settled to
-// DotOnly, a lightweight "Reconnecting" text if a live connection drops,
-// and a failure card with Retry / Host on another relay past 75s. Pinned
-// to the bottom of the Lobby per spec — never a modal, never blocking Play.
 @Composable
 fun RelayStatusLine(
     status: RelayStatus,
@@ -127,7 +109,7 @@ fun RelayStatusLine(
     modifier: Modifier = Modifier,
 ) {
     when (status) {
-        RelayStatus.DotOnly -> {} // nothing — the persistent dot elsewhere is the only trace
+        RelayStatus.DotOnly -> {}
         RelayStatus.Silent -> IndeterminateSweep(modifier)
         RelayStatus.Waking -> Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -153,21 +135,11 @@ fun RelayStatusLine(
             RelayStatusDot(status)
             Text("Reconnecting", color = AppOnSurfaceVariant)
         }
-        // onExit traps a focus-search attempt that fires the instant this Failed
-        // branch (and whichever of its buttons had focus) is removed from
-        // composition — e.g. Retry reconnecting successfully out from under the
-        // user. Without it, Compose's fallback can escape to the nav drawer,
-        // same bug class as this app's other documented focus-escape fixes.
-        // This component doesn't know a specific sibling to redirect to (it's
-        // reused from both Lobby and Settings), so cancelling is the safe
-        // default rather than a wrong guess at a restore target.
         RelayStatus.Failed -> Column(
             modifier = modifier.focusProperties { onExit = { cancelFocusChange() } },
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Can't reach $relayNickname")
-            // 16dp, not 14's own glow radius — anything tighter and a
-            // focused button's glow washes over its sibling's border.
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ShumOutlinedButton(onClick = onRetry) { Text("Retry") }
                 if (onHostOnAnother != null) {
@@ -194,9 +166,6 @@ private fun Spinner() {
     }
 }
 
-// The "0-2s, said quietly" state — a 3dp track with a lit segment sliding
-// across it, no text at all, so a fast connect reads as "nothing happened"
-// rather than a flash of UI.
 @Composable
 private fun IndeterminateSweep(modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "relaySweep")

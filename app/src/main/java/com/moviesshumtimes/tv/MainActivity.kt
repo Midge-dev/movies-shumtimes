@@ -87,10 +87,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Edge-to-edge so the player's video surface can claim the entire
-        // physical display — otherwise space reserved for system bars shows
-        // up as extra black bars on top of whatever letterboxing is already
-        // baked into the video itself.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).let { controller ->
             controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -104,11 +100,6 @@ class MainActivity : ComponentActivity() {
                     .background(AppBackground),
                 contentAlignment = Alignment.Center,
             ) {
-                // A plain Modifier.background() doesn't establish content
-                // color on its own — without this, every bare Text() outside
-                // a themed control (screen titles, field labels, etc.) falls
-                // back to Compose's hardcoded default (black), unreadable on
-                // this dark theme.
                 CompositionLocalProvider(LocalContentColor provides AppOnBackground) {
                     AppRoot()
                 }
@@ -117,8 +108,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// The four fields every library-browsing state needs — pulled out so each
-// AppState variant below doesn't repeat them.
 private data class LibraryContext(
     val server: PlexServer,
     val sections: List<PlexSection>,
@@ -131,13 +120,7 @@ private sealed interface AppState {
     data object LoggedOut : AppState
     data class ConnectingToServer(val username: String?) : AppState
     data class Error(val message: String) : AppState
-    // Shown once after first login when no relay URL is saved yet — see
-    // RelaySetupScreen. Never revisited once a relay URL exists.
     data class RelaySetup(val ctx: LibraryContext) : AppState
-    // Landing screen after login — the only state not scoped to a single
-    // library section, so it carries its own row data instead of a
-    // LibraryContext. Always refetched on entry (see loadHome) since
-    // watch progress / library contents change constantly.
     data class Home(
         val server: PlexServer,
         val sections: List<PlexSection>,
@@ -146,36 +129,14 @@ private sealed interface AppState {
         val suggestions: List<PlexOnDeckItem>,
     ) : AppState
     data class Library(val ctx: LibraryContext) : AppState
-    // Shown while a section switch is in flight — fetchLibraryItems plus
-    // preloadPosters (see below) can take a visible moment, and previously
-    // nothing changed on screen until both finished, reading as an
-    // unresponsive pause rather than a deliberate load. selectedSectionKey
-    // is the section being loaded *into*, so the nav drawer highlights the
-    // right destination while it waits rather than whatever was selected
-    // before.
     data class LoadingSection(
         val server: PlexServer,
         val sections: List<PlexSection>,
         val label: String,
         val selectedSectionKey: String?,
     ) : AppState
-    // returnState mirrors Lobby/Player's field below — Settings is reachable
-    // from Home now too, and Back needs to land wherever it was opened from
-    // rather than always dumping into the Movies library.
     data class Settings(val ctx: LibraryContext, val returnState: AppState, val relayHint: String? = null) : AppState
-    // returnState mirrors Settings/Lobby/Player below — MovieDetail is now
-    // reachable from Home (Recently Added/Suggestions) as well as Library,
-    // so Back needs to resolve to wherever it was actually opened from.
-    // ShowSeasons/ShowEpisodes carry it through unchanged (their own Back
-    // already steps back one level internally, to MovieDetail/ShowSeasons)
-    // so a second Back-press after landing back on MovieDetail still
-    // resolves correctly.
     data class MovieDetail(val ctx: LibraryContext, val movie: PlexLibraryItem, val returnState: AppState) : AppState
-    // Reached by pressing a cast/crew member on MovieDetail (design spec
-    // 09c) — a dedicated lightweight grid rather than reusing LibraryScreen,
-    // whose sort/genre/decade/search UI and nav-drawer section highlighting
-    // don't fit a person-filtered view. items is fetched once, up front,
-    // same as ShowSeasons/ShowEpisodes below.
     data class PersonFilmography(
         val ctx: LibraryContext,
         val person: PlexPerson,
@@ -196,48 +157,20 @@ private sealed interface AppState {
         val episodes: List<PlexEpisode>,
         val returnState: AppState,
     ) : AppState
-    // Design spec 05c: pressing an episode still lands here instead of
-    // going straight to Player — a room is a social act with a cost, so the
-    // episode being started has to be legible (synopsis, runtime, resume
-    // point) before the press, not confirmed after it. Back returns to
-    // ShowEpisodes at the position it was left, episode still focused.
     data class EpisodeDetail(
         val ctx: LibraryContext,
         val show: PlexLibraryItem,
         val episode: PlexEpisode,
         val returnState: AppState,
     ) : AppState
-    // returnState lets Lobby/Player hand navigation back to wherever the
-    // user actually came from — a movie's detail screen, or an episode list.
-    // relay is shared across the Lobby -> Player transition (and back) so
-    // the connection — and any active chat — doesn't reconnect on every
-    // screen change; see AppRoot's ensureRelayClient. Lobby.relay is
-    // non-null by construction — see the onPlay/onSelect handlers below,
-    // which only ever build a Lobby when a relay actually exists (there'd
-    // be nothing to wait for otherwise). Player.relay stays nullable since
-    // Player is also reachable directly, skipping the Lobby entirely, when
-    // no relay is configured — solo playback has never depended on one.
     data class Lobby(
         val server: PlexServer,
         val detail: PlexMovieDetail,
         val returnState: AppState,
         val relay: RelayClient,
-        // The room's host display name — this device's own username when
-        // hosting, or the joined room's RelayRoomSummary.hostName when
-        // joining someone else's (a guest otherwise has no way to know who
-        // opened the room). See LobbyScreen's matching doc comment.
         val hostName: String,
-        // Which relay this room is on — design spec 09d shows this next to
-        // the title in Lobby's header alongside the connection status dot.
         val relayNickname: String,
-        // Carried through so hostOnAnotherRelay can re-issue RoomIntent.Create
-        // against a different relay without re-fetching the movie/episode —
-        // PlexMovieDetail itself has no thumb field. Unused (left null) for a
-        // joined room, since only a host can rehost elsewhere.
         val thumb: String? = null,
-        // True only when this device opened the room (RoomIntent.Create) —
-        // gates LobbyScreen's "Host on another relay" control, which makes
-        // no sense on a room you joined.
         val isHost: Boolean = false,
     ) : AppState
     data class Player(
@@ -248,13 +181,6 @@ private sealed interface AppState {
     ) : AppState
 }
 
-// Design spec 09 step 1: the floor on how long the splash stays up, so the
-// entrance animation (SplashScreen.kt, also ~1.4s) always gets to finish
-// before the cross-fade to whatever the token check resolved to — a token
-// check that resolves sooner doesn't cut the animation short, it just means
-// the extra time is spent holding rather than waiting on real work. A
-// slower check holds the splash at its settled end frame for however much
-// longer is actually needed.
 private const val SPLASH_MIN_HOLD_MS = 1_400L
 
 @Composable
@@ -269,18 +195,6 @@ private fun AppRoot() {
     var relayIdentity by remember { mutableStateOf<RelayIdentity?>(null) }
     var relayClient by remember { mutableStateOf<RelayClient?>(null) }
 
-    // Lazily creates (or reuses) the shared watch-together connection when
-    // entering the Lobby/Player flow, and released explicitly wherever that
-    // flow is exited back to browsing (see onBack/onExit below) — reconnect
-    // tokens make reconnecting cheap and safe now, so there's no reason to
-    // hold the socket open for the whole browsing session too. The relay is
-    // now multi-tenant (design spec 09b): every call states whether it's
-    // hosting a fresh room or joining a specific one by id, since there's
-    // no longer a single implicit room the connection always lands in.
-    // relayUrl is now caller-supplied rather than derived from a single
-    // setting — hosting uses settings.defaultRelay, joining uses whichever
-    // relay the target room actually lives on (design spec 09d: multiple
-    // relays, a room's relay isn't necessarily the default).
     suspend fun ensureRelayClient(relayUrl: String, intent: RoomIntent): RelayClient? {
         relayClient?.let { return it }
         if (relayUrl.isBlank()) return null
@@ -307,44 +221,14 @@ private fun AppRoot() {
         relayClient = null
     }
 
-    // Home's Watch Together row (design spec 09b, extended by 09d for
-    // multiple relays) — polled rather than pushed over a live socket,
-    // since browsing Home shouldn't require holding a WebSocket open just
-    // to see what's live. Runs for the whole app lifetime as one loop
-    // (cheap — a no-op check most of the time) rather than restarting on
-    // every Home-state rebuild, matching the always-on polling idiom
-    // already used elsewhere in this file.
-    //
-    // Every configured relay is queried in parallel and the merged map is
-    // updated as each one resolves — not awaited all together — so one
-    // slow/sleeping relay never delays another relay's rooms from
-    // appearing (design spec 09d: "a slow or sleeping relay never holds up
-    // the row").
     var liveRoomsByRelay by remember { mutableStateOf<Map<String, List<RelayRoomSummary>>>(emptyMap()) }
     var liveRelaysById by remember { mutableStateOf<Map<String, RelayEntry>>(emptyMap()) }
-    // Every room this device currently hosts (seat 0), independent of
-    // whether a live RelayClient still exists for any of them — see
-    // RelayIdentity.hostedRooms. Drives Home's "End session" controls, one
-    // per hosted room, which have to work even after Lobby/Player's
-    // onBack/onExit has already torn the socket down.
     var hostedRoomIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val relayDirectoryApi = remember { RelayDirectoryApi() }
     LaunchedEffect(Unit) {
-        // One in-flight poll per relay id at a time — without this, a slow or
-        // waking relay (the exact case this loop's own comment calls out)
-        // accumulated an additional concurrent request every 5s indefinitely
-        // instead of just waiting for the previous one, and two overlapping
-        // requests for the same relay could also complete out of order,
-        // letting a stale response overwrite a newer one.
         val pollJobs = mutableMapOf<String, Job>()
         while (true) {
             if (state is AppState.Home) {
-                // Two entries can point at the same physical relay (e.g. the
-                // same relay re-added under a new nickname before the old
-                // entry was removed) — polling both would show the exact
-                // same room twice under two different names. Collapse to
-                // one entry per URL, preferring whichever is default, so
-                // each live room is attributed to exactly one nickname.
                 val relays = context.appSettingsStore.observe().first().relays
                     .groupBy { it.url }
                     .map { (_, entries) -> entries.firstOrNull { it.isDefault } ?: entries.first() }
@@ -373,12 +257,6 @@ private fun AppRoot() {
         }
     }
 
-    // Design spec ask: an accidental disconnect (lost power/wifi) should
-    // never kill a room out from under a guest — that's what the relay's
-    // own reconnect grace already protects. This is the deliberate
-    // counterpart: a host explicitly asking, from Home, to end a room right
-    // now. Works with or without a live RelayClient for it (see
-    // RelayDirectoryApi.closeRoom's server-side host-identity check).
     suspend fun closeHostedRoom(merged: MergedRoom): Boolean {
         val identity = context.relayIdentityStore.load()
         val hosted = identity.hostedRooms.firstOrNull { it.roomId == merged.room.roomId } ?: return false
@@ -393,12 +271,6 @@ private fun AppRoot() {
         return ok
     }
 
-    // Design spec 09d: "Default unreachable at 75s → offer the next
-    // reachable relay by name in the failure state, one press to move." Only
-    // ever called for a Lobby this device is hosting (see LobbyScreen's
-    // onHostOnAnother, wired below) — a guest has nothing to rehost. Drops
-    // the dead connection and opens a fresh room, by the same title, on the
-    // next configured relay; no-ops if there isn't one.
     suspend fun hostOnAnotherRelay(current: AppState.Lobby) {
         val settings = context.appSettingsStore.observe().first()
         val next = settings.relays.firstOrNull { it.url != current.relay.relayUrl } ?: return
@@ -428,16 +300,6 @@ private fun AppRoot() {
         }
     }
 
-    // Warms Coil's cache for a section's first screenful of posters before
-    // handing control back to the caller, so LibraryScreen's grid appears
-    // already populated instead of popping in tile-by-tile while the loading
-    // screen is still the thing on-screen. Bounded to a fixed prefix — most
-    // libraries run into the hundreds of items, and only the first few rows
-    // are visible before any scrolling happens (5-column grid; four rows
-    // covers every screen size this app targets). A failed/slow fetch for
-    // any one poster just means that tile pops in normally later — this is
-    // a head start, not something the transition should ever block on
-    // indefinitely.
     val posterPreloadImageLoader = SingletonImageLoader.get(context)
     suspend fun preloadPosters(server: PlexServer, items: List<PlexLibraryItem>) {
         coroutineScope {
@@ -448,14 +310,8 @@ private fun AppRoot() {
         }
     }
 
-    // Shared by both the nav drawer (any browsing screen) and the old
-    // in-Library tab row it replaced — always lands back on Library, since
-    // that's the one screen that actually renders a section's items.
     fun selectSection(ctx: LibraryContext, section: PlexSection) {
         if (section.key == ctx.selectedSection.key) {
-            // ctx.items is already this section's data — no need to hit the
-            // network again just to jump back to Library from wherever the
-            // nav drawer was clicked.
             state = AppState.Library(ctx)
             return
         }
@@ -469,8 +325,6 @@ private fun AppRoot() {
         }
     }
 
-    // Home has no "currently selected section" to compare against the way
-    // selectSection does, so a click there always fetches fresh.
     fun openSection(server: PlexServer, sections: List<PlexSection>, section: PlexSection) {
         state = AppState.LoadingSection(server, sections, section.title, section.key)
         scope.launch {
@@ -490,21 +344,6 @@ private fun AppRoot() {
         return AppState.Home(server, sections, onDeck, recentlyAdded, suggestions)
     }
 
-    // Every `state = current.returnState` restore below redisplays whatever
-    // Home/Library snapshot was fetched *before* the detour (Settings,
-    // MovieDetail, Lobby, Player…) started — potentially a while ago, and
-    // long enough for the cousin to have added something to the library
-    // mid-movie. Firing once here, right as that screen is restored, picks
-    // up anything new without polling continuously. A no-op for every other
-    // AppState (MovieDetail, ShowSeasons, …) — those aren't "the library
-    // listing" in the sense meant here, so passing one through unchanged is
-    // correct, not just harmless.
-    //
-    // Applied optimistically (old snapshot shown immediately, replaced once
-    // the fetch resolves) rather than blocking the transition on a network
-    // call. The `state == target` check guards against a slow refresh
-    // landing after the user has already navigated on elsewhere by the time
-    // it resolves.
     suspend fun refreshReturnState(target: AppState): AppState = when (target) {
         is AppState.Home -> loadHome(target.server, target.sections)
         is AppState.Library -> {
@@ -524,10 +363,6 @@ private fun AppRoot() {
         }
     }
 
-    // Optimistic + fire-and-forget, matching TimelineReporter's established
-    // style — no error UI exists anywhere in this app. If the PUT actually
-    // fails server-side, the item just reappears next time Home is
-    // (re)entered, since loadHome always refetches.
     fun removeFromContinueWatching(home: AppState.Home, item: PlexOnDeckItem) {
         state = home.copy(onDeck = home.onDeck.filterNot { it.ratingKey == item.ratingKey })
         scope.launch {
@@ -567,13 +402,6 @@ private fun AppRoot() {
         }
     }
 
-    // Design spec 09 step 1: covers the token check (Checking) and, for a
-    // warm start, the whole connect() sequence through ConnectingToServer —
-    // "Returning users with a valid Plex token go straight from here to
-    // Home," not through an intermediate "Connecting to library…" text
-    // screen. Once that resolves, still waits out the rest of
-    // SPLASH_MIN_HOLD_MS before cross-fading, so the entrance animation is
-    // never interrupted mid-motion by a fast local network.
     var showSplash by remember { mutableStateOf(true) }
     val splashStartMs = remember { System.currentTimeMillis() }
     LaunchedEffect(state) {
@@ -641,12 +469,6 @@ private fun AppRoot() {
                             state = AppState.Error("No relay configured")
                             return@launch
                         }
-                        // Wait briefly for the join to actually resolve so a
-                        // room that just ended (host left between the last
-                        // /rooms poll and this press) shows a clear message
-                        // instead of dropping the viewer into a dead Lobby —
-                        // times out optimistically into Lobby rather than
-                        // blocking indefinitely on a slow relay.
                         val resolved = withTimeoutOrNull(5_000) {
                             relay.connectionState.first {
                                 it == ConnectionState.CONNECTED || it == ConnectionState.ROOM_NOT_FOUND
@@ -659,12 +481,6 @@ private fun AppRoot() {
                         }
                     }
                 },
-                // Solo, always — resuming Continue Watching is never an
-                // implicit "start a room" action (it isn't Watch Together).
-                // Previously this unconditionally called ensureRelayClient
-                // whenever a relay was configured at all, which meant every
-                // resume created a real, publicly-listed room announcing
-                // "hosting" to the whole friend group's Home screen.
                 onResume = { item ->
                     scope.launch {
                         val fetched = runCatching {
@@ -678,11 +494,6 @@ private fun AppRoot() {
                 },
                 onRemove = { item -> removeFromContinueWatching(current, item) },
                 onSelectRecentlyAdded = { item ->
-                    // recentlyAdded surfaces TV content at season
-                    // granularity ("Season 14") — there's no season-level
-                    // detail screen in this app, so route to the show
-                    // itself instead, using the parent fields Plex attaches
-                    // to season items (confirmed against a real server).
                     val parentRatingKey = item.parentRatingKey
                     val target = if (item.type == "season" && parentRatingKey != null) {
                         PlexLibraryItem(
@@ -809,12 +620,6 @@ private fun AppRoot() {
                         )
                     }
                 },
-                // Detail-screen info sections (design spec 09c) — cast/crew/
-                // ratings/reviews/related all come off the same
-                // fetchMovieDetail/fetchRelatedHubs calls used elsewhere for
-                // playback info, just requested here for their display
-                // fields instead. Best-effort: a failure here should leave
-                // the hero usable rather than erroring the whole screen.
                 loadDetail = {
                     runCatching {
                         PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(current.movie.ratingKey)
@@ -831,11 +636,6 @@ private fun AppRoot() {
                             .fetchLibraryItemsByActor(current.ctx.selectedSection.key, actorId)
                     }.getOrDefault(emptyList())
                 },
-                // A related/more-with poster only carries the fields Plex's
-                // hub response gives it (ratingKey/type/title/thumb/art) —
-                // same stub-construction shape as Home's onSelectSuggestion
-                // above, staying within the current section's context since
-                // a movie's related hubs are themselves other movies.
                 onSelectRelated = { item ->
                     val relatedMovie = PlexLibraryItem(
                         ratingKey = item.ratingKey,
@@ -865,9 +665,6 @@ private fun AppRoot() {
                         )
                     }
                 },
-                // Play — direct to player, relay untouched. No room, no
-                // presence, no sync; this is the solo path and must never
-                // require a configured relay.
                 onPlay = { targetRatingKey ->
                     scope.launch {
                         val fetched = runCatching {
@@ -879,14 +676,6 @@ private fun AppRoot() {
                         )
                     }
                 },
-                // Watch Together — opens the Lobby. Stays focusable with no
-                // relay configured (never disabled — a disabled control
-                // gives a couch user nothing to act on), routing to Settings
-                // with an inline hint instead.
-                // Design spec 09d: "Always the default. No prompt." — a
-                // long-press relay chooser (the documented escape hatch for
-                // hosting on a non-default relay) isn't built yet; hosting
-                // always targets settings.defaultRelay for now.
                 onWatchTogether = { targetRatingKey ->
                     scope.launch {
                         val hostName = localAccount?.username ?: "Host"
@@ -1015,8 +804,6 @@ private fun AppRoot() {
                 showTitle = current.show.title,
                 seasonTitle = current.season.title,
                 episodes = current.episodes,
-                // Design spec 05c: a screen, not a menu — see EpisodeDetail's
-                // doc comment. Play/Watch Together are chosen there now.
                 onSelect = { episode ->
                     state = AppState.EpisodeDetail(current.ctx, current.show, episode, current)
                 },
@@ -1040,8 +827,6 @@ private fun AppRoot() {
                 showTitle = current.show.title,
                 episode = current.episode,
                 onBack = { returnTo(current.returnState) },
-                // Resume — solo, respects the episode's own viewOffset as
-                // reported by Plex (same path onResume/Play already use).
                 onPlay = {
                     scope.launch {
                         val fetched = runCatching {
@@ -1053,11 +838,6 @@ private fun AppRoot() {
                         )
                     }
                 },
-                // Only ever rendered alongside Resume — forces playback from
-                // 0 regardless of Plex's own reported viewOffset. No new
-                // PlayerScreen plumbing needed: it reads its start position
-                // straight off detail.viewOffset, so zeroing it here is the
-                // whole fix.
                 onPlayFromStart = {
                     scope.launch {
                         val fetched = runCatching {
@@ -1071,11 +851,6 @@ private fun AppRoot() {
                         )
                     }
                 },
-                // Watch Together — mirrors MovieDetail's onWatchTogether
-                // exactly, parameterized on this episode's ratingKey. Design
-                // spec 05c: "a room opened here carries the episode," so the
-                // Home card's title reads "Show · S1E3" once the room is
-                // created (see onDeckDisplayTitle-style formatting).
                 onWatchTogether = {
                     scope.launch {
                         val hostName = localAccount?.username ?: "Host"

@@ -32,9 +32,6 @@ private const val MESSAGE_VISIBLE_MS = 6_000L
 private const val FADE_OUT_MS = 300L
 private const val MAX_VISIBLE = 4
 
-// Renders incoming chat as fading toasts, similar to a game's area chat —
-// messages appear briefly and clear themselves rather than accumulating
-// into a persistent log the viewer has to manage with no keyboard on a TV.
 @Composable
 fun ChatOverlay(
     messages: SharedFlow<ChatMessage>,
@@ -47,11 +44,6 @@ fun ChatOverlay(
         messages.collect { message -> visible = (visible + message).takeLast(MAX_VISIBLE) }
     }
 
-    // Design spec section 07: the stack always grows away from its anchored
-    // edge so the newest message stays closest to the corner. Bottom anchors
-    // already get that for free (last-added renders last, i.e. nearest the
-    // bottom edge); top anchors need the render order reversed so the newest
-    // lands nearest the top edge instead of the bottom of the stack.
     val isTop = corner == ChatOverlayCorner.TOP_START || corner == ChatOverlayCorner.TOP_END
     val isStart = corner == ChatOverlayCorner.TOP_START || corner == ChatOverlayCorner.BOTTOM_START
     val ordered = if (isTop) visible.asReversed() else visible
@@ -63,11 +55,6 @@ fun ChatOverlay(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         for (message in ordered) {
-            // ChatMessage carries no server-issued id (see RelayProtocol.kt) —
-            // adding `text` alongside the original two fields narrows the
-            // window for a same-millisecond double-send from one user to
-            // collide (would now need identical content too, not just
-            // identical timestamp+username) without a wire-protocol change.
             key(message.receivedAtMs, message.username, message.text) {
                 ChatBubble(message, textAlign = textAlign, onExpired = { visible = visible - message })
             }

@@ -44,8 +44,6 @@ fun ShumSwitch(
     val border = ShumBorder(focused = BorderStroke(2.dp, NeonPurpleGradient))
     val glow = ShumGlow(focusedColor = NeonPurpleGlow)
     val thumbOffset by animateDpAsState(if (checked) TrackWidth - ThumbSize - ThumbInset else ThumbInset, label = "switchThumb")
-    // Track color is already spoken for by on/off — pressed shrinks the
-    // thumb instead, the only tone left to carry "a press just landed".
     val actualInteractionSource = interactionSource ?: remember { MutableInteractionSource() }
     val isPressed by actualInteractionSource.collectIsPressedAsState()
     val thumbScale by animateFloatAsState(if (isPressed) 0.88f else 1f, label = "switchThumbScale")

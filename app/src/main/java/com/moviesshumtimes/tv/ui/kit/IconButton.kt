@@ -14,9 +14,6 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGradient
 import com.moviesshumtimes.tv.ui.theme.NeonPurplePressed
 
-// Player transport controls only — transparent at rest so icons float over
-// video with no visible container until focused; 44dp minimum hit target
-// per the design spec's "Icon — player transport only" note.
 private val IconButtonShape = CircleShape
 private val IconButtonSize = 44.dp
 

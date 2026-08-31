@@ -17,12 +17,6 @@ import androidx.compose.ui.unit.dp
 import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
-// Design spec 08 (Modals, QR & system states): a plain rotating ring, not
-// Material's shape-morphing blob — track AppSurfaceVariant, a 90° accent
-// arc in NeonPurple, 4dp stroke, one full turn per second. Hand-rolled since
-// tv-material3 has no loading indicator of its own and the base (non-TV)
-// Material3 ContainedLoadingIndicator this used to borrow reads as a
-// recognizably different, non-native component next to the rest of the app.
 private const val STROKE_WIDTH_DP = 4
 private const val SWEEP_DEGREES = 90f
 

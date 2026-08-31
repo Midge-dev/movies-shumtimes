@@ -8,23 +8,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-// Bridges an ExoPlayer to the relay. Picks host or guest role from the
-// relay's assigned seat index (0 = host, every other seat = guest) and
-// wires up the matching coordinator — see HostPlaybackCoordinator /
-// GuestPlaybackReconciler for the actual sync policy, this class is just
-// the glue: RelayEvent <-> domain-type translation, routing incoming
-// events to the right place, and relaying the guest-side clock-sync
-// ping/pong (the host side of that exchange is a one-line reply here too,
-// not worth its own class).
-//
-// Does not own the RelayClient's connection lifecycle — that's hoisted
-// above Lobby/Player now (see MainActivity's AppRoot) so the connection,
-// and chat, survive the Lobby -> Player transition instead of reconnecting
-// on every screen change.
-// relay is nullable: solo playback (no relay configured, or a movie played
-// directly without going through the Lobby) is a fully supported path —
-// start()/stop() simply no-op in that case rather than requiring callers
-// to special-case "no sync" themselves.
 class SyncViewModel(
     private val player: SyncedPlayer,
     private val relay: RelayClient?,
@@ -94,9 +77,6 @@ class SyncViewModel(
     }
 
     private fun handleEvent(relay: RelayClient, event: RelayEvent) {
-        // Any message with a fromPeerId is proof-of-life for that peer —
-        // the host tracks the roster off of this rather than a separate
-        // relay-level "peerJoined" message.
         event.fromPeerId?.let { if (it != relay.myPeerId) host?.onPeerJoined(it) }
 
         when (event.kind) {
@@ -119,9 +99,6 @@ class SyncViewModel(
                 )
             }
             "clockPing" -> {
-                // Broadcast-only relay means every peer sees every ping;
-                // only the host replies, addressed back via fromPeerId so
-                // the right guest (and only that guest) consumes the pong.
                 if (host == null) return
                 val fromPeerId = event.fromPeerId ?: return
                 val pingId = event.pingId ?: return

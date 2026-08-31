@@ -8,20 +8,9 @@ import kotlinx.serialization.json.Json
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-// A room this device currently holds seat 0 (host) in, tracked independent
-// of any live RelayClient so Home can offer "End session" for it long after
-// the socket that created it is gone. reconnectToken here is that room's own
-// host-seat token, minted per room+seat by the relay — distinct from
-// RelayIdentity.reconnectToken (the live connection's token) since a device
-// hosting two rooms at once holds two different, non-interchangeable tokens.
 @Serializable
 data class HostedRoom(val relayUrl: String, val roomId: String, val reconnectToken: String)
 
-// This device's identity with the relay: a peerId minted once and kept
-// forever (so the relay recognizes "the same device" across app restarts —
-// though not across a full uninstall, same as the relay pairing URL),
-// plus whatever reconnectToken the relay most recently issued for the live
-// connection, and every room this device is currently hosting.
 data class RelayIdentity(
     val peerId: String,
     val reconnectToken: String? = null,
@@ -50,9 +39,6 @@ class RelayIdentityStore(private val settings: ObservableSettings) {
         settings.putString(RECONNECT_TOKEN_KEY, token)
     }
 
-    // Records the room this device just became host of, replacing any prior
-    // entry for the same roomId (a reclaim after a drop can re-fire this
-    // with the same token, or the relay could mint a fresh one).
     fun addHostedRoom(relayUrl: String, roomId: String, reconnectToken: String) {
         val updated = load().hostedRooms.filterNot { it.roomId == roomId } + HostedRoom(relayUrl, roomId, reconnectToken)
         settings.putString(HOSTED_ROOMS_KEY, json.encodeToString(updated))

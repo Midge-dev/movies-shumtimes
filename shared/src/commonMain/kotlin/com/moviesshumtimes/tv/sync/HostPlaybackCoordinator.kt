@@ -6,18 +6,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// Host-side policy engine: owns the authoritative PlaybackState for however
-// many guests have joined (N-capable — the relay's seat model supports up
-// to MAX_DEVICE_SEATS, so this tracks a set of peers rather than assuming
-// exactly one). Ported down from Plezy's host_playback_coordinator.dart:
-// same phase machine, same peer-status-driven stall gating (the actual fix
-// for the old "buffering broadcast as pause" bug), same scheduled
-// group-start and safety-timeout-resumes-without-stragglers behavior.
-// Dropped from the original: per-media "epoch" switching (not needed — see
-// PlaybackState), RTT-adaptive start delay and rate-based drift nudging
-// (simplified to a fixed start delay and hard-seek-only correction, partly
-// to sidestep ExoPlayer's audio-passthrough/playback-speed interaction,
-// partly because this app has no variable-speed feature to protect either).
 class HostPlaybackCoordinator(
     private val myPeerId: String,
     private val player: SyncedPlayer,
@@ -26,16 +14,6 @@ class HostPlaybackCoordinator(
     private val onWaitingOnChanged: (List<String>) -> Unit = {},
 ) {
     private companion object {
-        // Widened twice now (500 -> 1500 -> 2500ms). The first widening
-        // targeted hard-seek-induced rebuffers; a real-world test still
-        // hit repeated stall/resume cycles afterward, which points less at
-        // "correction overshoot" and more at one side's connection
-        // genuinely not sustaining the selected transcode bitrate — every
-        // real buffer event pausing the *whole room* is much more visible
-        // than a solo Plex client just buffering quietly. This buys more
-        // tolerance before that turns into a full room-wide pause, but a
-        // chronically insufficient bitrate needs fixing in Settings, not
-        // just a bigger number here.
         const val STALL_GRACE_MS = 2_500L
         const val RECOVERY_HYSTERESIS_MS = 800L
         const val SAFETY_TIMEOUT_MS = 15_000L
@@ -43,25 +21,11 @@ class HostPlaybackCoordinator(
         const val HEARTBEAT_IDLE_MS = 5_000L
         const val START_DELAY_MS = 750L
         const val IMPLICIT_JUMP_THRESHOLD_MS = 1_500L
-        // Long enough to cover ExoPlayer's listener-dispatch latency for a
-        // command we just issued ourselves, short enough not to eat a real
-        // second press the way the old flat 2.5s suppression window did.
         const val SUPPRESSION_WINDOW_MS = 400L
     }
 
     private var seq = 0
     private var phase = PlaybackPhase.LOADING
-    // Defaults true, not false: PlexPlayerFactory sets the ExoPlayer's own
-    // playWhenReady=true at construction time, before this coordinator's
-    // listener is even attached (that happens later, in SyncViewModel.start()
-    // -> host.start() -> player.addListener). onPlayWhenReadyChanged never
-    // fires for a change that occurred before the listener existed, so
-    // intendedPlaying starting false meant resolveAllReady() always took the
-    // "stay paused" branch on first load, no matter what the player itself
-    // was already set to do — every session required a manual play press to
-    // ever get going. Defaulting true matches what a freshly opened title
-    // should do anyway; requestPause() still overrides it the normal way if
-    // the user (or a peer) pauses before load finishes.
     private var intendedPlaying = true
     private var localReady = false
     private var localBuffering = false
@@ -187,10 +151,6 @@ class HostPlaybackCoordinator(
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Local player signals
-    // ---------------------------------------------------------------------
-
     private fun onLocalLoaded() {
         if (phase == PlaybackPhase.LOADING) {
             if (player.isPlaying) suppressed { player.pause() }
@@ -215,10 +175,6 @@ class HostPlaybackCoordinator(
             scheduleAllReadyCheck(RECOVERY_HYSTERESIS_MS)
         }
     }
-
-    // ---------------------------------------------------------------------
-    // Play / pause / seek policy
-    // ---------------------------------------------------------------------
 
     private fun requestPlay(actor: String) {
         if (phase == PlaybackPhase.PLAYING) return
@@ -262,10 +218,6 @@ class HostPlaybackCoordinator(
     private fun afterHostSeek(targetMs: Long, actor: String) {
         broadcast(hint = PlaybackActionHint.SEEK, actor = actor, anchorOverrideMs = targetMs)
     }
-
-    // ---------------------------------------------------------------------
-    // Readiness / group-wait
-    // ---------------------------------------------------------------------
 
     private fun gatingPeers(): Set<String> {
         val gating = mutableSetOf<String>()
@@ -333,7 +285,7 @@ class HostPlaybackCoordinator(
             anchorHostTimeOverrideMs = startAt,
         )
 
-        if (delayMs <= 0 && player.isPlaying) return // Solo resume — nothing to do.
+        if (delayMs <= 0 && player.isPlaying) return
 
         pendingStartJob = scope.launch {
             if (delayMs > 0) delay(delayMs)
@@ -368,10 +320,6 @@ class HostPlaybackCoordinator(
         safetyJob?.cancel()
         safetyJob = null
     }
-
-    // ---------------------------------------------------------------------
-    // Heartbeat & broadcasting
-    // ---------------------------------------------------------------------
 
     private fun restartHeartbeat() {
         heartbeatJob?.cancel()

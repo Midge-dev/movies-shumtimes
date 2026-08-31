@@ -9,11 +9,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 
-// Replaces tv-material3's Text — same call shape (positional text, then the
-// handful of named params every call site in this app actually uses) so
-// migrating a screen is an import swap, not a rewrite. Unlike Material's
-// Text, there's no MaterialTheme to read a default color/style from; color
-// falls back to LocalContentColor and style defaults to bodyLarge.
 @Composable
 fun Text(
     text: String,

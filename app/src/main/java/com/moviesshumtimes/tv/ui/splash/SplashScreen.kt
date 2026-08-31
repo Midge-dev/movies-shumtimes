@@ -41,26 +41,6 @@ import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
-// Design spec section 09, step 1 "Splash": ~1.4s total, cold-start only —
-// MainActivity holds this up for at least that long (see SPLASH_MIN_HOLD_MS)
-// while the Plex token check runs behind it, then cross-fades to whatever
-// that check resolved to (Home for a warm start, the Link Plex step
-// otherwise). A slow check just means a longer hold at this screen's
-// settled end frame, not a longer animation.
-//
-// logo_wordmark.png (the raster fallback) is used instead of live Space
-// Grotesk type — the spec calls for live type "so it stays crisp at any
-// size" but explicitly keeps this PNG "as the raster fallback for platforms
-// without the font", which is exactly this situation: nothing in this app
-// bundles Space Grotesk today, and adding a font just for a 1.4s splash
-// isn't worth it when the spec already names the correct fallback.
-// Sean's feedback on the first pass: barely readable as an animation at
-// all, and felt cut off. Two real problems, not one: the motion itself was
-// too subtle (small scale deltas, a 10dp rise), and every stage finished by
-// ~1080ms — the last ~300ms of the 1.4s hold was just a static frame, so a
-// glance from the couch could easily land entirely inside "nothing moving."
-// Bigger deltas and stages that overlap across the *whole* 1.4s window (not
-// front-loaded and done) fixes both at once.
 private const val BLOOM_DURATION_MS = 900
 private const val MARK_DURATION_MS = 500
 private const val WORDMARK_DURATION_MS = 500
@@ -68,22 +48,10 @@ private const val WORDMARK_DELAY_MS = 450
 private const val KICKER_DURATION_MS = 700
 private const val KICKER_DELAY_MS = 650
 
-// A real Plex token check can easily take longer than 1.4s (DNS, TLS, a
-// remote server) — this app's own conventions already have a name for a
-// slow, continuous pulse used while something is genuinely still working
-// (see PlayerScreen/RelayStatus's Spinner, and the design canvas's own
-// shum-breathe/shum-pulse keyframes). Without this, the entrance animation
-// finishes and the screen just sits dead still for however much longer the
-// real work takes — which is what actually read as "cut off": not the
-// animation ending too soon, but a long static hold before an abrupt cut
-// to Home with nothing having moved in between.
 private const val BREATHE_PERIOD_MS = 1800
 
 @Composable
 fun SplashScreen(modifier: Modifier = Modifier) {
-    // Flips true one frame after entering composition so every animateFooAsState
-    // below actually animates from its initial value instead of snapping
-    // straight to the target on the very first frame.
     var started by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { started = true }
 
@@ -112,20 +80,12 @@ fun SplashScreen(modifier: Modifier = Modifier) {
         animationSpec = tween(WORDMARK_DURATION_MS, delayMillis = WORDMARK_DELAY_MS),
         label = "splashWordmarkAlpha",
     )
-    // .06em -> .32em, expressed as a plain float multiplied back into .em
-    // below — animateFloatAsState has no unit-aware TextUnit overload. Ends
-    // right at the 1.4s ceiling (650 + 700 = 1350ms) instead of coasting the
-    // last ~300ms with nothing moving.
     val kickerTracking by animateFloatAsState(
         targetValue = if (started) 0.32f else 0.06f,
         animationSpec = tween(KICKER_DURATION_MS, delayMillis = KICKER_DELAY_MS),
         label = "splashKickerTracking",
     )
 
-    // Runs continuously the entire time this screen is up, independent of
-    // the entrance sequence above — this is what keeps the screen visibly
-    // alive for however long the real token check takes, not just the
-    // first 1.4s.
     val breatheTransition = rememberInfiniteTransition(label = "splashBreathe")
     val breathe by breatheTransition.animateFloat(
         initialValue = 0f,
@@ -142,10 +102,6 @@ fun SplashScreen(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize().background(AppBackground), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(contentAlignment = Alignment.Center) {
-                // The bloom: a soft radial glow scaling in behind the mark,
-                // same drawn-not-elevated approach as every other glow in
-                // this app (see FocusableSurface.drawGlow) — no platform
-                // blur, just a radial gradient fading to transparent.
                 Box(
                     modifier = Modifier
                         .size(320.dp)
@@ -166,10 +122,6 @@ fun SplashScreen(modifier: Modifier = Modifier) {
                     painter = painterResource(R.drawable.logo_mark),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
-                    // logo_mark.png is the full M + shaka-hand lockup, 1181x696
-                    // (~1.7:1) — sizing by width + its real aspect ratio (rather
-                    // than a square box) is what keeps it from looking squashed
-                    // or cropped inside its allotted space.
                     modifier = Modifier
                         .width(260.dp)
                         .aspectRatio(1181f / 696f)
@@ -192,11 +144,6 @@ fun SplashScreen(modifier: Modifier = Modifier) {
                 text = "Watch together",
                 color = AppWhite.copy(alpha = 0.7f),
                 style = TextStyle(letterSpacing = kickerTracking.em),
-                // 24dp, not 14 — the wordmark above rides in on its own
-                // translationY slide (up to 24dp, paint-time only, so it
-                // doesn't affect this row's layout position). A smaller gap
-                // let the sliding wordmark visually clip into this row for
-                // the first instant of the entrance.
                 modifier = Modifier.padding(top = 24.dp).graphicsLayer { alpha = wordmarkAlpha },
             )
         }

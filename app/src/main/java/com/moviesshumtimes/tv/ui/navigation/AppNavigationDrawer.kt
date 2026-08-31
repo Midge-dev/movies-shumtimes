@@ -57,46 +57,14 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
 private const val SECTION_TYPE_SHOW = "show"
 
-// 48dp item + this Column's own 12dp horizontal padding on each side — the
-// actual rendered width of the collapsed rail, and how much start-padding
-// content needs to clear it (this doesn't inset content itself, same as the
-// tv-material3 version it replaced — content supplies its own start padding
-// below).
 private val COLLAPSED_RAIL_WIDTH = 80.dp
 private val EXPANDED_RAIL_WIDTH = 236.dp
 private val RailItemHeight = 48.dp
 
-// The width tween and each label's fade must complete at exactly the same
-// moment — see the "stretch flash" history below. RAIL_ANIM_DURATION_MS
-// drives the rail width; the label fade-in reuses it minus its own delay so
-// both finish together, and starts partway in (LABEL_FADE_DELAY_MS) so text
-// doesn't render before the rail has grown enough room for it. Collapsing
-// fades the label out fast and with no delay instead, so it's gone well
-// before the rail visually narrows back down — nothing to clip.
 private const val RAIL_ANIM_DURATION_MS = 200
 private const val LABEL_FADE_DELAY_MS = 80
 private const val LABEL_FADE_OUT_MS = 100
 
-// Persistent side rail replacing the old top-of-screen section-tabs row and
-// separate Settings button — a collapsed icon-only rail that expands to show
-// labels when it (or a child) has focus, matching the pattern every major TV
-// streaming app uses instead of top navigation. Wraps every "browsing"
-// screen (Library, MovieDetail, ShowSeasons, ShowEpisodes, Settings) from
-// MainActivity's AppRoot; Lobby/Player/Auth/RelaySetup stay outside it since
-// they're either full-screen or one-time flows, not destinations you
-// navigate between.
-//
-// A prior hand-rolled version (Box + animateDpAsState) had a real,
-// unresolved "stretch" flash on screen entry, traced to two independently-
-// timed animations racing each other: an outer Column-width tween plus a
-// per-item label AnimatedVisibility fade, each keyed off its own separate
-// focus signal. This version drives both from the exact same `expanded`
-// boolean — one focusGroup+onFocusChanged at the rail's root, read by every
-// item's label fade and the outer width tween alike — so there's structurally
-// nothing left to race. The rail overlays on top of content rather than
-// pushing it (content keeps a fixed COLLAPSED_RAIL_WIDTH start inset
-// regardless of expand state) so an open rail never darkens or reflows
-// anything behind it.
 @Composable
 fun AppNavigationDrawer(
     sections: List<PlexSection>,
@@ -106,10 +74,6 @@ fun AppNavigationDrawer(
     onSelectSection: (PlexSection) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHome: () -> Unit,
-    // Design spec section 15: "the one item that is a person rather than a
-    // place" — identity only, never a settings row and never clickable.
-    // Null before the account has loaded; renders the same initial-on-accent
-    // fallback every other avatar in this app uses in that case.
     account: PlexAccount?,
     content: @Composable () -> Unit,
 ) {
@@ -165,14 +129,6 @@ fun AppNavigationDrawer(
     }
 }
 
-// Background color alone carries focused/selected/idle state; text and icon
-// stay plain white in every state. This used to two-tone the text too
-// (NeonPurpleGlow when focused, NeonPurple when selected) matching buttons/
-// cards elsewhere, but both combinations turned out low-contrast and hard to
-// read against their own NeonPurple-family backgrounds (reported as an
-// accessibility issue, confirmed on real hardware/photos — looks fine in a
-// quick screenshot glance but reads as genuinely hard to read on an actual
-// TV). White stays legible against every background state here.
 private val railItemColors = ShumColors(
     container = Color.Transparent,
     content = AppWhite,
@@ -205,9 +161,6 @@ private fun SidebarItem(
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Focus already announces this item via the row's own selection/
-            // focus semantics — a contentDescription on the icon too would
-            // read the label twice.
             Icon(imageVector = icon, contentDescription = if (itemFocused) null else label, tint = AppWhite)
             AnimatedVisibility(
                 visible = expanded,
@@ -220,19 +173,8 @@ private fun SidebarItem(
     }
 }
 
-// Design spec section 15: 40dp avatar, collapsed rail shows just the circle,
-// expanded reveals the username. Not a settings row — no focus/selection
-// state, not clickable, purely identity. Same avatar-URL handling as
-// LobbyScreen's LobbyPersonCard: a Plex account thumb is already an absolute
-// plex.tv URL, not server-relative, so this loads it directly rather than
-// through PlexImageUrl.of.
 @Composable
 private fun UserAvatarItem(account: PlexAccount?, expanded: Boolean) {
-    // 8dp here, not SidebarItem's 16dp — collapsed rail content width is
-    // COLLAPSED_RAIL_WIDTH(80) minus the rail Column's own 12dp*2 padding =
-    // 56dp. SidebarItem's 24dp icon fits fine under 16dp*2 padding (56-32=24);
-    // this 40dp avatar needs the wider remainder (56-16=40) or it gets
-    // squeezed into an ellipse instead of a circle.
     Row(
         modifier = Modifier.fillMaxWidth().height(RailItemHeight).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -261,9 +203,6 @@ private fun UserAvatarItem(account: PlexAccount?, expanded: Boolean) {
             visible = expanded,
             enter = fadeIn(tween(durationMillis = RAIL_ANIM_DURATION_MS - LABEL_FADE_DELAY_MS, delayMillis = LABEL_FADE_DELAY_MS)),
             exit = fadeOut(tween(durationMillis = LABEL_FADE_OUT_MS)),
-            // Weighted, unlike SidebarItem's label — a username is arbitrary
-            // user-entered text and needs an actual bound to marquee against,
-            // where every other label here is a short, known-fit app string.
             modifier = Modifier.weight(1f),
         ) {
             Text(

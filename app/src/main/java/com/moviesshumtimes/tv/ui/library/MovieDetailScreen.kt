@@ -47,19 +47,8 @@ import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import kotlinx.coroutines.flow.first
 
-// Design spec 09c: below the hero, every section self-hides when its data
-// is empty or hasn't arrived yet — no headers over empty rows, no "No
-// information available", no skeletons that never resolve. Personal-media
-// items are expected to come back with none of this data; the screen simply
-// ends after the hero, which is the normal case, not a broken one.
 private const val HERO_HEIGHT_DP = 420
 
-// Play and Watch Together are peers, not a mode toggle (design spec 05b):
-// Play always goes straight to solo playback, relay untouched — it must
-// never require a configured relay. Watch Together is the only path into
-// the Lobby, and stays focusable even with no relay configured, routing to
-// Settings instead of disabling (a disabled control gives a couch user
-// nothing to act on).
 @Composable
 fun MovieDetailScreen(
     server: PlexServer,
@@ -78,19 +67,11 @@ fun MovieDetailScreen(
 ) {
     BackHandler(onBack = onBack)
 
-    // See LibraryScreen's matching comment — AppNavigationDrawer's sidebar
-    // is the first focusable thing in the composition, so every wrapped
-    // screen needs its own explicit request or D-pad focus defaults there.
     val playFocus = remember { FocusRequester() }
     LaunchedEffect(movie.ratingKey) {
         runCatching { playFocus.requestFocus() }
     }
 
-    // Only shows need this — a movie's own ratingKey is always the play
-    // target. Re-resolved per title since the on-deck episode differs show
-    // to show; Play/Watch Together no-op until it lands (fast enough in
-    // practice not to need a loading state of its own — initial focus sits
-    // on Play regardless).
     var nextEpisode by remember(movie.ratingKey) { mutableStateOf<PlexOnDeckItem?>(null) }
     LaunchedEffect(movie.ratingKey) {
         if (isShow) nextEpisode = resolveNextEpisode()
@@ -102,30 +83,12 @@ fun MovieDetailScreen(
         "Play"
     }
 
-    // Cast/crew/ratings/reviews and the related/more-with hubs are a
-    // separate fetch from the grid item already on hand (that item only has
-    // the fields needed for a poster) — same "pass a suspend loader,
-    // populate lazily inside the screen" shape already used for
-    // resolveNextEpisode above. null/empty means "not arrived yet" until
-    // the effect resolves, at which point each section either renders or
-    // stays hidden for good.
     var detail by remember(movie.ratingKey) { mutableStateOf<PlexMovieDetail?>(null) }
     LaunchedEffect(movie.ratingKey) { detail = loadDetail() }
 
     var relatedHubs by remember(movie.ratingKey) { mutableStateOf<List<PlexHub>>(emptyList()) }
     LaunchedEffect(movie.ratingKey) { relatedHubs = loadRelatedHubs() }
 
-    // Plex auto-generates a same-actor hub for whichever cast member it
-    // picks (confirmed this session: not reliably the top-billed/index-0
-    // entry) — assuming "index 0" caused the exact same actor to get both
-    // the auto hub and a manually-built one, showing as back-to-back
-    // duplicate "More with <name>" rows. Instead, read the hub titles Plex
-    // actually returned and skip whoever's already covered there. Also
-    // dedupe by person before picking, since the same cast member can
-    // legitimately appear twice in Role[] (e.g. a dual-credited cameo).
-    // Kept to 2 manual rows, each only shown with 3+ titles (a one-poster
-    // row is worse than no row); the current movie itself is filtered out
-    // of every result.
     var coStarRows by remember(movie.ratingKey) { mutableStateOf<List<Pair<PlexPerson, List<PlexLibraryItem>>>>(emptyList()) }
     LaunchedEffect(detail, relatedHubs) {
         val roles = detail?.roles ?: return@LaunchedEffect
@@ -143,29 +106,12 @@ fun MovieDetailScreen(
         }
     }
 
-    // The LazyColumn's default focus-scroll only brings the focused button
-    // itself into view, not the whole 420dp hero item it lives near the
-    // bottom of — scrolling back up from the sections below (or moving
-    // laterally between Play/Watch Together/Seasons) left the backdrop half
-    // cut off above the title. Snap all the way to item 0 every time any
-    // hero action button gains focus.
-    //
-    // A token counter, not a boolean: this needs to re-fire on *every*
-    // button-to-button move within the row, not just the first entry into
-    // it — a boolean flipping false->true only fires once per visit to the
-    // row, so moving Play->Watch Together (already "true", no transition)
-    // never re-triggered the correction, and the lazy list's own built-in
-    // "bring the newly-focused child into view" adjustment won that case
-    // uncontested. Each button reports its *own* isFocused via
-    // onFocusChanged instead of the row's aggregate hasFocus, so every
-    // individual focus move bumps the token and re-runs the effect.
     val listState = rememberLazyListState()
     var heroFocusToken by remember { mutableStateOf(0) }
     LaunchedEffect(heroFocusToken) {
         if (heroFocusToken > 0) listState.scrollToItem(0)
     }
 
-    // Design spec 09c: 26-30dp gap between info sections.
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -232,9 +178,6 @@ private fun MovieHero(
     onSeasons: () -> Unit,
     onActionButtonFocused: () -> Unit,
 ) {
-    // Design spec 09d: "Always the default. No prompt." — the focused
-    // button's helper line names which relay hosting will actually use,
-    // visible before the press rather than asked about after it.
     val context = LocalContext.current
     var defaultRelayNickname by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
@@ -247,9 +190,6 @@ private fun MovieHero(
             model = PlexImageUrl.of(server, movie.art ?: movie.thumb),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
-            // Design spec 05c: grain drops to 30% for a full-bleed backdrop
-            // this size, since it sits directly under the title/actions
-            // scrim (the Column drawn right after this, still on top).
             noiseOpacity = 0.3f,
         )
         Column(
@@ -270,9 +210,6 @@ private fun MovieHero(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.padding(top = 24.dp),
             ) {
-                // Each button reports its own isFocused rather than relying
-                // on the row's aggregate — see heroFocusToken's comment
-                // above for why a per-button signal is what's needed here.
                 ShumButton(
                     onClick = onPlay,
                     modifier = Modifier

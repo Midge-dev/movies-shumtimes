@@ -45,9 +45,6 @@ fun ShowEpisodesScreen(
 ) {
     BackHandler(onBack = onBack)
 
-    // See LibraryScreen's matching comment — AppNavigationDrawer's sidebar
-    // is the first focusable thing in the composition, so every wrapped
-    // screen needs its own explicit request or D-pad focus defaults there.
     val firstItemFocus = remember { FocusRequester() }
     LaunchedEffect(episodes) {
         runCatching { firstItemFocus.requestFocus() }
@@ -60,10 +57,6 @@ fun ShowEpisodesScreen(
         }
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
-            // Episode summaries commonly wrap to 2 lines — 16dp between rows
-            // looked cramped once that text filled out (reported as a
-            // spacing issue), same "denser row content needs more gap"
-            // pattern as the other poster/card lists in this app.
             verticalArrangement = Arrangement.spacedBy(24.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -79,21 +72,11 @@ fun ShowEpisodesScreen(
     }
 }
 
-// Design spec 05c: same 4dp bar as Continue Watching — track #000@40%, fill
-// accent, flush to the bottom edge, drawn inside the artwork's own clip so
-// the row reads as a progress map of the season at a glance. Renders only
-// when there's an actual resume point; a finished episode shows a full bar,
-// an untouched one shows none.
 private fun episodeProgressFraction(episode: PlexEpisode): Float {
     val duration = episode.duration?.takeIf { it > 0 } ?: return 0f
     return ((episode.viewOffset ?: 0L).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
 }
 
-// WideCardContainer (tv-material3) doesn't expose a gap parameter between
-// its imageCard and title/description slots — the text sat right against
-// the thumbnail's edge (reported as overlapping). Same move as elsewhere in
-// this app when a library component doesn't expose what's needed: dropped
-// for a plain Row with an explicit horizontal gap.
 @Composable
 private fun EpisodeRow(server: PlexServer, episode: PlexEpisode, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val heading = episode.index?.let { "${it}. ${episode.title}" } ?: episode.title
