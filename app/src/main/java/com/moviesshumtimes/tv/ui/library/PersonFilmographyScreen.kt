@@ -1,22 +1,28 @@
 package com.moviesshumtimes.tv.ui.library
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,6 +36,8 @@ import com.moviesshumtimes.tv.ui.kit.ShumCardContainer
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppOnSurfaceVariant
+import com.moviesshumtimes.tv.ui.theme.AppWhite
+import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
 private const val GRID_COLUMNS = 5
 
@@ -41,6 +49,7 @@ private const val GRID_COLUMNS = 5
 fun PersonFilmographyScreen(
     server: PlexServer,
     personName: String,
+    personThumb: String?,
     items: List<PlexLibraryItem>,
     onSelectItem: (PlexLibraryItem) -> Unit,
     onBack: () -> Unit,
@@ -53,9 +62,38 @@ fun PersonFilmographyScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.padding(start = 32.dp, top = 32.dp, end = 32.dp)) {
-            Text(text = personName, style = ShumTypography.headlineMedium)
-            Text(text = "${items.size} titles", color = AppOnSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = Modifier.padding(start = 32.dp, top = 32.dp, end = 32.dp),
+        ) {
+            // Same circular portrait the cast rail used, at 88dp — continuity
+            // across the press, so this reads as the portrait having opened
+            // rather than a new destination having appeared.
+            Box(modifier = Modifier.size(88.dp).clip(CircleShape)) {
+                if (personThumb != null) {
+                    ShumArtwork(
+                        model = PlexImageUrl.of(server, personThumb),
+                        contentDescription = personName,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(NeonPurple.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(personName.take(1).uppercase(), style = ShumTypography.headlineMedium, color = AppWhite)
+                    }
+                }
+            }
+            Column {
+                Text(text = personName, style = ShumTypography.headlineMedium)
+                Text(
+                    text = "${items.size} title${if (items.size == 1) "" else "s"} in your library",
+                    color = AppOnSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         }
         Box(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
             LazyVerticalGrid(

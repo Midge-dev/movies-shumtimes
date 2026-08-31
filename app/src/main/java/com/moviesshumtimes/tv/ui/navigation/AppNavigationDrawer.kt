@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -33,15 +35,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import coil3.compose.AsyncImage
+import com.moviesshumtimes.tv.data.plex.PlexAccount
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.ui.kit.FocusableSurface
 import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumColors
+import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppSurface
 import com.moviesshumtimes.tv.ui.theme.AppWhite
@@ -98,6 +106,11 @@ fun AppNavigationDrawer(
     onSelectSection: (PlexSection) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHome: () -> Unit,
+    // Design spec section 15: "the one item that is a person rather than a
+    // place" — identity only, never a settings row and never clickable.
+    // Null before the account has loaded; renders the same initial-on-accent
+    // fallback every other avatar in this app uses in that case.
+    account: PlexAccount?,
     content: @Composable () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -122,6 +135,8 @@ fun AppNavigationDrawer(
                 .padding(vertical = 24.dp, horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            UserAvatarItem(account = account, expanded = expanded)
+            Spacer(modifier = Modifier.height(8.dp))
             SidebarItem(
                 icon = Icons.Default.Home,
                 label = "Home",
@@ -201,6 +216,65 @@ private fun SidebarItem(
             ) {
                 Text(label, color = AppWhite, modifier = Modifier.padding(start = 14.dp))
             }
+        }
+    }
+}
+
+// Design spec section 15: 40dp avatar, collapsed rail shows just the circle,
+// expanded reveals the username. Not a settings row — no focus/selection
+// state, not clickable, purely identity. Same avatar-URL handling as
+// LobbyScreen's LobbyPersonCard: a Plex account thumb is already an absolute
+// plex.tv URL, not server-relative, so this loads it directly rather than
+// through PlexImageUrl.of.
+@Composable
+private fun UserAvatarItem(account: PlexAccount?, expanded: Boolean) {
+    // 8dp here, not SidebarItem's 16dp — collapsed rail content width is
+    // COLLAPSED_RAIL_WIDTH(80) minus the rail Column's own 12dp*2 padding =
+    // 56dp. SidebarItem's 24dp icon fits fine under 16dp*2 padding (56-32=24);
+    // this 40dp avatar needs the wider remainder (56-16=40) or it gets
+    // squeezed into an ellipse instead of a circle.
+    Row(
+        modifier = Modifier.fillMaxWidth().height(RailItemHeight).padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.size(40.dp).clip(CircleShape).background(NeonPurple.copy(alpha = 0.35f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val thumb = account?.thumb
+            if (thumb != null) {
+                AsyncImage(
+                    model = thumb,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                )
+            } else {
+                Text(
+                    text = (account?.username?.take(1) ?: "?").uppercase(),
+                    style = ShumTypography.bodyLarge,
+                    color = AppWhite,
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(durationMillis = RAIL_ANIM_DURATION_MS - LABEL_FADE_DELAY_MS, delayMillis = LABEL_FADE_DELAY_MS)),
+            exit = fadeOut(tween(durationMillis = LABEL_FADE_OUT_MS)),
+            // Weighted, unlike SidebarItem's label — a username is arbitrary
+            // user-entered text and needs an actual bound to marquee against,
+            // where every other label here is a short, known-fit app string.
+            modifier = Modifier.weight(1f),
+        ) {
+            Text(
+                text = account?.username ?: "",
+                color = AppWhite,
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+                modifier = Modifier
+                    .padding(start = 14.dp)
+                    .basicMarquee(),
+            )
         }
     }
 }

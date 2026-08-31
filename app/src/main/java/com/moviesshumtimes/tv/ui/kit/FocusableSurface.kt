@@ -10,6 +10,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -69,15 +70,44 @@ data class ShumGlow(val focusedColor: Color? = null, val radius: Dp = 14.dp, val
 // only thing that works everywhere. Each layer is faint on its own; they
 // compound near the shape's edge into something that reads as a glow
 // without ever needing platform blur support.
-private fun Modifier.drawGlow(shape: Shape, color: Color, radius: Dp, alpha: Float, layers: Int = 3): Modifier =
+// Not private: HomeScreen's RoomCard hand-rolls its own card-level focus
+// tracking (the card is a focusGroup of several independent buttons now, not
+// a single FocusableSurface) but still needs the exact same glow, not an
+// approximation — see its own doc comment.
+internal fun Modifier.drawGlow(shape: Shape, color: Color, radius: Dp, alpha: Float, layers: Int = 14): Modifier =
     drawBehind {
         val radiusPx = radius.toPx()
         for (i in layers downTo 1) {
             val t = i.toFloat() / layers
             val expand = radiusPx * t
-            val layerAlpha = (alpha * (1f - t) * 2f / layers).coerceIn(0f, 1f)
+            // Each shell is drawn as a flat-alpha fill, largest first, so a
+            // point at distance d from the surface's own edge ends up
+            // covered by every shell whose expand >= d — composited "over"
+            // blending across that many stacked shells is what actually
+            // builds the visible falloff, not any single shell's own alpha.
+            // 14 thin shells (not 3) is what turns that into a smooth
+            // gradient instead of 1-2 visible concentric rings; a squared
+            // falloff on top front-loads the fade near the edge (a real
+            // glow reads brightest close in, not evenly ramped to the full
+            // radius), and the fitted peak constant keeps the *composited*
+            // brightness at the surface's own edge matching `alpha`, not
+            // just each shell's own small contribution.
+            val layerAlpha = (alpha * (1f - t) * (1f - t) * 0.4f).coerceIn(0f, 1f)
             if (layerAlpha <= 0f) continue
-            val outline = shape.createOutline(
+            // A rounded shape's corner radius has to grow by the same
+            // `expand` as the shell itself, not stay fixed — otherwise a
+            // small corner radius on an increasingly bigger rectangle reads
+            // as squarer at each successive shell, so the outer (most
+            // visible) part of the glow looks corner-cut instead of round
+            // like the card it surrounds. CircleShape and other shapes
+            // don't have this problem (a circle offset outward is still a
+            // circle), so this only special-cases RoundedCornerShape.
+            val expandedShape = if (shape is RoundedCornerShape) {
+                RoundedCornerShape(shape.topStart.toPx(size, this) + expand)
+            } else {
+                shape
+            }
+            val outline = expandedShape.createOutline(
                 Size(size.width + expand * 2f, size.height + expand * 2f),
                 layoutDirection,
                 this,

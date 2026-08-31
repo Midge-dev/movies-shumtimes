@@ -4,7 +4,15 @@ import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlinx.serialization.Serializable
 
-enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING, ROOM_FULL, ROOM_NOT_FOUND }
+// ROOM_CLOSED is distinct from ROOM_NOT_FOUND: both mean "this room is
+// gone," but ROOM_CLOSED comes from an explicit "closed" frame the relay
+// sends every occupied seat the instant a host ends their session (see
+// relay/server.js's /rooms/:roomId/close) — a clean signal, not the
+// transient-looking dropped-socket-then-reconnect-fails path ROOM_NOT_FOUND
+// covers. Screens that care about "the room I was in just ended" (Lobby)
+// should treat both the same; RelayClient never auto-reconnects past
+// ROOM_CLOSED since there's nothing to reconnect to.
+enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING, ROOM_FULL, ROOM_NOT_FOUND, ROOM_CLOSED }
 
 // One row of the relay's GET /rooms directory — a room currently live on
 // the shared relay, with just enough to render a Home-screen card and join

@@ -38,6 +38,13 @@ data class AppSettings(
     // relay" and skips straight to solo playback rather than showing a
     // Lobby with no one to wait for.
     val relays: List<RelayEntry> = emptyList(),
+    // Design spec section 14 "Maximum seats" — a client-side cap on rooms
+    // this device hosts, sent with the room when it opens (RoomIntent.
+    // Create.maxSeats); the relay's own constant is still the ceiling.
+    // Lowering it never evicts anyone already in a live room, since a room's
+    // seat count is fixed at creation time — it only affects rooms created
+    // after the change.
+    val maxHostSeats: Int = DEFAULT_MAX_HOST_SEATS,
     val maxVideoBitrateKbps: Int = DEFAULT_MAX_BITRATE_KBPS,
     val forceBurnSubtitles: Boolean = false,
     // Watch-together chat still connects and sends/receives normally when
@@ -51,17 +58,27 @@ data class AppSettings(
 ) {
     companion object {
         const val DEFAULT_MAX_BITRATE_KBPS = 8000
+        const val DEFAULT_MAX_HOST_SEATS = 8
 
         // Shared by SettingsScreen and the in-player quality picker so both
         // surfaces offer the same choices with the same friendly labels —
         // most viewers have no intuition for what "8 Mbps" costs them, so
         // the plain number is paired with a plain-English quality tier.
+        // Dropped the trailing "quality" word (was "Low quality)" etc.) —
+        // it's redundant against the row's own "Max transcode video
+        // bitrate" label, and the couple dp it costs is what actually keeps
+        // all four presets on screen at once without a horizontal scroll.
         val BITRATE_PRESETS = listOf(
-            BitratePreset(2000, "2 Mbps (Low quality)"),
-            BitratePreset(4000, "4 Mbps (Medium quality)"),
-            BitratePreset(8000, "8 Mbps (Good quality)"),
-            BitratePreset(20000, "20 Mbps (High quality)"),
+            BitratePreset(2000, "2 Mbps (Low)"),
+            BitratePreset(4000, "4 Mbps (Medium)"),
+            BitratePreset(8000, "8 Mbps (Good)"),
+            BitratePreset(20000, "20 Mbps (High)"),
         )
+
+        // Design spec section 14: eleven entries, scrolls (unlike Sort's
+        // short list) — the menu opens with focus on the applied value
+        // wherever it sits in this list.
+        val MAX_HOST_SEATS_OPTIONS = listOf(2, 4, 6, 8, 12, 14, 16, 18, 20, 22, 24)
     }
 }
 
@@ -76,6 +93,7 @@ data class BitratePreset(val kbps: Int, val label: String)
 
 private const val RELAY_URL_KEY = "relay_url" // legacy — see migration in observe()
 private const val RELAY_ENTRIES_KEY = "relay_entries"
+private const val MAX_HOST_SEATS_KEY = "max_host_seats"
 private const val MAX_BITRATE_KEY = "max_video_bitrate_kbps"
 private const val FORCE_BURN_KEY = "force_burn_subtitles"
 private const val SHOW_CHAT_OVERLAY_KEY = "show_chat_overlay"
@@ -91,6 +109,7 @@ private data class BaseSettings(
     val maxBitrateKbps: Int,
     val forceBurnSubtitles: Boolean,
     val showChatOverlay: Boolean,
+    val maxHostSeats: Int,
 )
 
 // `settings` is whatever platform-native key-value store the caller wires
@@ -105,8 +124,9 @@ class SettingsStore(private val settings: ObservableSettings) {
             settings.getIntFlow(MAX_BITRATE_KEY, AppSettings.DEFAULT_MAX_BITRATE_KBPS),
             settings.getBooleanFlow(FORCE_BURN_KEY, false),
             settings.getBooleanFlow(SHOW_CHAT_OVERLAY_KEY, true),
-        ) { maxBitrateKbps, forceBurnSubtitles, showChatOverlay ->
-            BaseSettings(maxBitrateKbps, forceBurnSubtitles, showChatOverlay)
+            settings.getIntFlow(MAX_HOST_SEATS_KEY, AppSettings.DEFAULT_MAX_HOST_SEATS),
+        ) { maxBitrateKbps, forceBurnSubtitles, showChatOverlay, maxHostSeats ->
+            BaseSettings(maxBitrateKbps, forceBurnSubtitles, showChatOverlay, maxHostSeats)
         }
         return combine(
             base,
@@ -116,6 +136,7 @@ class SettingsStore(private val settings: ObservableSettings) {
         ) { b, selectedServerId, cornerName, relayEntriesJson ->
             AppSettings(
                 relays = decodeRelays(relayEntriesJson),
+                maxHostSeats = b.maxHostSeats,
                 maxVideoBitrateKbps = b.maxBitrateKbps,
                 forceBurnSubtitles = b.forceBurnSubtitles,
                 showChatOverlay = b.showChatOverlay,
@@ -160,6 +181,7 @@ class SettingsStore(private val settings: ObservableSettings) {
         } else {
             settings.remove(RELAY_ENTRIES_KEY)
         }
+        settings.putInt(MAX_HOST_SEATS_KEY, appSettings.maxHostSeats)
         settings.putInt(MAX_BITRATE_KEY, appSettings.maxVideoBitrateKbps)
         settings.putBoolean(FORCE_BURN_KEY, appSettings.forceBurnSubtitles)
         settings.putBoolean(SHOW_CHAT_OVERLAY_KEY, appSettings.showChatOverlay)

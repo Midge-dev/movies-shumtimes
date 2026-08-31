@@ -10,12 +10,15 @@ const TOKEN = process.env.RELAY_TOKEN || null;
 // Together" mints a fresh room (host seated at index 0); joining requires
 // that specific roomId (learned from the Home screen's /rooms directory,
 // not shared out-of-band the way the old single-tenant pairing flow worked).
-// A room lives only as long as its host is connected — see
-// releaseExpiredReservations below, which now deletes the whole room once
-// seat 0's reservation lapses, not just that one seat.
+// A room lives as long as anyone at all is seated in it — the host leaving
+// no longer ends it outright (a guest mid-movie shouldn't get cut off just
+// because the host's connection dropped); it's only deleted once every seat
+// has been empty for EMPTY_ROOM_TIMEOUT_MS straight. See
+// releaseExpiredReservations below.
 const MAX_DEVICE_SEATS = Number(process.env.MAX_DEVICE_SEATS || 8);
 const MAX_CHAT_PEERS = 4;
 const RECONNECT_GRACE_MS = 60_000;
+const EMPTY_ROOM_TIMEOUT_MS = 10 * 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const CHAT_HISTORY_LIMIT = 100;
 // Device seats reclaim themselves via reconnect tokens, but a chat peer
@@ -41,17 +44,35 @@ function mintRoomId() {
   return crypto.randomBytes(6).toString('base64url');
 }
 
-function createRoomState({ title, thumb, ratingKey, hostName }) {
+// Design spec section 14 "Maximum seats": a client-side cap on rooms a
+// device hosts, sent along with createRoom — clamped to MAX_DEVICE_SEATS
+// (the relay's own ceiling) rather than trusting the client, since a
+// misbehaving/older client could otherwise ask for more seats than this
+// deployment is provisioned for.
+function clampMaxSeats(requested) {
+  const n = Number(requested);
+  if (!Number.isFinite(n) || n < 1) return MAX_DEVICE_SEATS;
+  return Math.min(Math.floor(n), MAX_DEVICE_SEATS);
+}
+
+function createRoomState({ title, thumb, ratingKey, hostName, maxSeats }) {
+  const cappedSeats = clampMaxSeats(maxSeats);
   return {
     roomId: mintRoomId(),
     title: String(title || 'Untitled'),
     thumb: typeof thumb === 'string' ? thumb : null,
     ratingKey: typeof ratingKey === 'string' ? ratingKey : null,
     hostName: typeof hostName === 'string' && hostName ? hostName : 'Host',
-    seats: new Array(MAX_DEVICE_SEATS).fill(null),
+    maxSeats: cappedSeats,
+    seats: new Array(cappedSeats).fill(null),
     chatPeers: new Set(),
     chatHistory: [],
     createdAt: Date.now(),
+    // Set the instant every seat is empty, cleared the instant anyone's
+    // seated again — see releaseExpiredReservations, which deletes the room
+    // once this has stood for EMPTY_ROOM_TIMEOUT_MS. A freshly-created room
+    // always has its host in seat 0, so this starts null.
+    emptySince: null,
   };
 }
 
@@ -98,11 +119,18 @@ function releaseExpiredReservations() {
         room.seats[i] = null;
       }
     }
-    // Seat 0 is always the host by construction — once its reservation has
-    // lapsed with nobody reclaiming it, the room itself is over. This is
-    // the entire "room disappears when the host leaves" mechanic; no
-    // separate expiry timer is needed on top of it.
-    if (!room.seats[0]) {
+    // A room stays alive indefinitely as long as anyone at all is seated —
+    // the host leaving isn't special anymore, only every seat being empty
+    // is. Tracks how long it's been fully empty and only deletes it once
+    // that's held for EMPTY_ROOM_TIMEOUT_MS straight; regaining an occupant
+    // (a reconnect, or someone else joining) within that window clears the
+    // clock with no other cleanup needed.
+    const occupied = room.seats.some((seat) => seat !== null);
+    if (occupied) {
+      room.emptySince = null;
+    } else if (room.emptySince === null) {
+      room.emptySince = now;
+    } else if (now - room.emptySince >= EMPTY_ROOM_TIMEOUT_MS) {
       rooms.delete(roomId);
     }
   }
@@ -115,6 +143,7 @@ function handleCreateRoom(ws, msg) {
     thumb: msg.thumb,
     ratingKey: msg.ratingKey,
     hostName: msg.hostName,
+    maxSeats: msg.maxSeats,
   });
   rooms.set(room.roomId, room);
   const result = assignSeat(ws, room, peerId); // always succeeds: fresh room, all seats empty
@@ -245,7 +274,7 @@ const server = http.createServer((req, res) => {
         ratingKey: room.ratingKey,
         hostName: room.hostName,
         occupants,
-        maxSeats: MAX_DEVICE_SEATS,
+        maxSeats: room.maxSeats,
       });
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -271,7 +300,20 @@ const server = http.createServer((req, res) => {
       const authorized = hostSeat && parsed &&
         hostSeat.peerId === parsed.peerId && hostSeat.reconnectToken === parsed.reconnectToken;
       if (authorized) {
-        if (hostSeat.ws) { try { hostSeat.ws.close(); } catch { /* already gone */ } }
+        // Every occupied seat gets an explicit "closed" frame before its
+        // socket closes — not just the host's. Without this, a guest
+        // waiting in the Lobby just sees their socket drop, which the
+        // client reads as a transient failure and retries into a
+        // misleading "Can't reach relay" state instead of the deliberate
+        // close it actually was.
+        for (const seat of room.seats) {
+          if (seat && seat.ws) {
+            try {
+              seat.ws.send(JSON.stringify({ type: 'closed' }));
+              seat.ws.close();
+            } catch { /* already gone */ }
+          }
+        }
         rooms.delete(room.roomId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));

@@ -75,6 +75,13 @@ data class PlexSeason(
     val thumb: String? = null,
 )
 
+// Design spec 05c: viewOffset/duration drive the resume progress bar on each
+// row and the Resume/Play-from-start choice on the episode detail screen;
+// parentIndex/grandparentTitle/originallyAvailableAt back the screen's
+// "Show · Season N · Episode M" kicker and air date. Same fields
+// PlexOnDeckItem already carries for the same underlying Plex episode shape
+// — /library/metadata/{season}/children already returns all of these per
+// episode, confirmed against a real server; no query-param change needed.
 @Serializable
 data class PlexEpisode(
     val ratingKey: String,
@@ -82,6 +89,11 @@ data class PlexEpisode(
     val index: Int? = null,
     val thumb: String? = null,
     val summary: String? = null,
+    val duration: Long? = null,
+    val viewOffset: Long? = null,
+    val parentIndex: Int? = null,
+    val grandparentTitle: String? = null,
+    val originallyAvailableAt: String? = null,
 )
 
 // streamType: 1 = video, 2 = audio, 3 = subtitle. id is the value the Plex
@@ -154,6 +166,13 @@ data class PlexReview(
 data class PlexMovieDetail(
     val ratingKey: String,
     val title: String,
+    // Design spec 09d: Lobby's background is "the item's own art (backdrop,
+    // or the poster blurred and cropped when there is no 16:9 art)" — same
+    // standard top-level Plex metadata fields every other item type already
+    // carries (PlexLibraryItem/PlexOnDeckItem), just missing here since
+    // nothing needed them on this model until now.
+    val thumb: String? = null,
+    val art: String? = null,
     val duration: Long? = null,
     // Position (ms) Plex has recorded from a previous partial watch, via our
     // own TimelineReporter calls or another Plex client — absent/0 means

@@ -3,6 +3,8 @@ package com.moviesshumtimes.tv
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,6 +56,7 @@ import com.moviesshumtimes.tv.sync.RelayRoomSummary
 import com.moviesshumtimes.tv.sync.RoomIntent
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
+import com.moviesshumtimes.tv.ui.library.EpisodeDetailScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
 import com.moviesshumtimes.tv.ui.library.PersonFilmographyScreen
@@ -66,6 +69,7 @@ import com.moviesshumtimes.tv.ui.navigation.AppNavigationDrawer
 import com.moviesshumtimes.tv.ui.player.PlayerScreen
 import com.moviesshumtimes.tv.ui.settings.RelaySetupScreen
 import com.moviesshumtimes.tv.ui.settings.SettingsScreen
+import com.moviesshumtimes.tv.ui.splash.SplashScreen
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import kotlinx.coroutines.async
@@ -191,6 +195,17 @@ private sealed interface AppState {
         val episodes: List<PlexEpisode>,
         val returnState: AppState,
     ) : AppState
+    // Design spec 05c: pressing an episode still lands here instead of
+    // going straight to Player — a room is a social act with a cost, so the
+    // episode being started has to be legible (synopsis, runtime, resume
+    // point) before the press, not confirmed after it. Back returns to
+    // ShowEpisodes at the position it was left, episode still focused.
+    data class EpisodeDetail(
+        val ctx: LibraryContext,
+        val show: PlexLibraryItem,
+        val episode: PlexEpisode,
+        val returnState: AppState,
+    ) : AppState
     // returnState lets Lobby/Player hand navigation back to wherever the
     // user actually came from — a movie's detail screen, or an episode list.
     // relay is shared across the Lobby -> Player transition (and back) so
@@ -214,6 +229,15 @@ private sealed interface AppState {
         // Which relay this room is on — design spec 09d shows this next to
         // the title in Lobby's header alongside the connection status dot.
         val relayNickname: String,
+        // Carried through so hostOnAnotherRelay can re-issue RoomIntent.Create
+        // against a different relay without re-fetching the movie/episode —
+        // PlexMovieDetail itself has no thumb field. Unused (left null) for a
+        // joined room, since only a host can rehost elsewhere.
+        val thumb: String? = null,
+        // True only when this device opened the room (RoomIntent.Create) —
+        // gates LobbyScreen's "Host on another relay" control, which makes
+        // no sense on a room you joined.
+        val isHost: Boolean = false,
     ) : AppState
     data class Player(
         val server: PlexServer,
@@ -222,6 +246,15 @@ private sealed interface AppState {
         val relay: RelayClient?,
     ) : AppState
 }
+
+// Design spec 09 step 1: the floor on how long the splash stays up, so the
+// entrance animation (SplashScreen.kt, also ~1.4s) always gets to finish
+// before the cross-fade to whatever the token check resolved to — a token
+// check that resolves sooner doesn't cut the animation short, it just means
+// the extra time is spent holding rather than waiting on real work. A
+// slower check holds the splash at its settled end frame for however much
+// longer is actually needed.
+private const val SPLASH_MIN_HOLD_MS = 1_400L
 
 @Composable
 private fun AppRoot() {
@@ -336,18 +369,52 @@ private fun AppRoot() {
     // counterpart: a host explicitly asking, from Home, to end a room right
     // now. Works with or without a live RelayClient for it (see
     // RelayDirectoryApi.closeRoom's server-side host-identity check).
-    fun closeHostedRoom(merged: MergedRoom) {
-        scope.launch {
-            val identity = context.relayIdentityStore.load()
-            val hosted = identity.hostedRooms.firstOrNull { it.roomId == merged.room.roomId } ?: return@launch
-            val ok = relayDirectoryApi.closeRoom(merged.relay.url, merged.room.roomId, identity.peerId, hosted.reconnectToken)
-            if (ok) {
-                context.relayIdentityStore.removeHostedRoom(merged.room.roomId)
-                hostedRoomIds = hostedRoomIds - merged.room.roomId
-                liveRoomsByRelay = liveRoomsByRelay.mapValues { (_, rooms) ->
-                    rooms.filterNot { it.roomId == merged.room.roomId }
-                }
+    suspend fun closeHostedRoom(merged: MergedRoom): Boolean {
+        val identity = context.relayIdentityStore.load()
+        val hosted = identity.hostedRooms.firstOrNull { it.roomId == merged.room.roomId } ?: return false
+        val ok = relayDirectoryApi.closeRoom(merged.relay.url, merged.room.roomId, identity.peerId, hosted.reconnectToken)
+        if (ok) {
+            context.relayIdentityStore.removeHostedRoom(merged.room.roomId)
+            hostedRoomIds = hostedRoomIds - merged.room.roomId
+            liveRoomsByRelay = liveRoomsByRelay.mapValues { (_, rooms) ->
+                rooms.filterNot { it.roomId == merged.room.roomId }
             }
+        }
+        return ok
+    }
+
+    // Design spec 09d: "Default unreachable at 75s → offer the next
+    // reachable relay by name in the failure state, one press to move." Only
+    // ever called for a Lobby this device is hosting (see LobbyScreen's
+    // onHostOnAnother, wired below) — a guest has nothing to rehost. Drops
+    // the dead connection and opens a fresh room, by the same title, on the
+    // next configured relay; no-ops if there isn't one.
+    suspend fun hostOnAnotherRelay(current: AppState.Lobby) {
+        val settings = context.appSettingsStore.observe().first()
+        val next = settings.relays.firstOrNull { it.url != current.relay.relayUrl } ?: return
+        releaseRelayClient()
+        val hostName = localAccount?.username ?: "Host"
+        val newClient = ensureRelayClient(
+            next.url,
+            RoomIntent.Create(
+                title = current.detail.title,
+                thumb = current.thumb,
+                ratingKey = current.detail.ratingKey,
+                hostName = hostName,
+                maxSeats = settings.maxHostSeats,
+            ),
+        )
+        if (newClient != null) {
+            state = AppState.Lobby(
+                current.server,
+                current.detail,
+                current.returnState,
+                newClient,
+                hostName,
+                next.nickname,
+                thumb = current.thumb,
+                isHost = true,
+            )
         }
     }
 
@@ -490,7 +557,29 @@ private fun AppRoot() {
         }
     }
 
-    when (val current = state) {
+    // Design spec 09 step 1: covers the token check (Checking) and, for a
+    // warm start, the whole connect() sequence through ConnectingToServer —
+    // "Returning users with a valid Plex token go straight from here to
+    // Home," not through an intermediate "Connecting to library…" text
+    // screen. Once that resolves, still waits out the rest of
+    // SPLASH_MIN_HOLD_MS before cross-fading, so the entrance animation is
+    // never interrupted mid-motion by a fast local network.
+    var showSplash by remember { mutableStateOf(true) }
+    val splashStartMs = remember { System.currentTimeMillis() }
+    LaunchedEffect(state) {
+        if (showSplash && state !is AppState.Checking && state !is AppState.ConnectingToServer) {
+            val elapsed = System.currentTimeMillis() - splashStartMs
+            if (elapsed < SPLASH_MIN_HOLD_MS) delay(SPLASH_MIN_HOLD_MS - elapsed)
+            showSplash = false
+        }
+    }
+
+    Crossfade(targetState = showSplash, animationSpec = tween(200), label = "splashCrossfade") { splashing ->
+        if (splashing) {
+            SplashScreen()
+            return@Crossfade
+        }
+        when (val current = state) {
         is AppState.Checking -> LoadingScreen("Loading…")
         is AppState.ConnectingToServer -> LoadingScreen(
             current.username?.let { "Logged in as $it — connecting to library…" } ?: "Connecting to library…",
@@ -513,6 +602,7 @@ private fun AppRoot() {
                 )
             },
             onOpenHome = {},
+            account = localAccount,
         ) {
             HomeScreen(
                 server = current.server,
@@ -629,6 +719,7 @@ private fun AppRoot() {
             onSelectSection = { section -> selectSection(current.ctx, section) },
             onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
             onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+            account = localAccount,
         ) {
             LibraryScreen(
                 server = current.ctx.server,
@@ -647,6 +738,7 @@ private fun AppRoot() {
             onSelectSection = {},
             onOpenSettings = {},
             onOpenHome = {},
+            account = localAccount,
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 LoadingScreen("Loading ${current.label}…")
@@ -660,6 +752,7 @@ private fun AppRoot() {
             onSelectSection = { section -> selectSection(current.ctx, section) },
             onOpenSettings = {},
             onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+            account = localAccount,
         ) {
             SettingsScreen(
                 accountToken = accountToken ?: "",
@@ -680,6 +773,7 @@ private fun AppRoot() {
             onSelectSection = { section -> selectSection(current.ctx, section) },
             onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
             onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+            account = localAccount,
         ) {
             val isShow = current.ctx.selectedSection.type == SECTION_TYPE_SHOW
             MovieDetailScreen(
@@ -786,7 +880,8 @@ private fun AppRoot() {
                 onWatchTogether = { targetRatingKey ->
                     scope.launch {
                         val hostName = localAccount?.username ?: "Host"
-                        val defaultRelay = context.appSettingsStore.observe().first().defaultRelay
+                        val settings = context.appSettingsStore.observe().first()
+                        val defaultRelay = settings.defaultRelay
                         if (defaultRelay == null) {
                             state = AppState.Settings(
                                 current.ctx,
@@ -802,6 +897,7 @@ private fun AppRoot() {
                                 thumb = current.movie.thumb,
                                 ratingKey = targetRatingKey,
                                 hostName = hostName,
+                                maxSeats = settings.maxHostSeats,
                             ),
                         )
                         if (relay == null) {
@@ -816,7 +912,16 @@ private fun AppRoot() {
                             }
                             state = fetched.fold(
                                 onSuccess = { detail ->
-                                    AppState.Lobby(current.ctx.server, detail, current, relay, hostName, defaultRelay.nickname)
+                                    AppState.Lobby(
+                                        current.ctx.server,
+                                        detail,
+                                        current,
+                                        relay,
+                                        hostName,
+                                        defaultRelay.nickname,
+                                        thumb = current.movie.thumb,
+                                        isHost = true,
+                                    )
                                 },
                                 onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
                             )
@@ -833,10 +938,12 @@ private fun AppRoot() {
             onSelectSection = { section -> selectSection(current.ctx, section) },
             onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
             onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+            account = localAccount,
         ) {
             PersonFilmographyScreen(
                 server = current.ctx.server,
                 personName = current.person.tag,
+                personThumb = current.person.thumb,
                 items = current.items,
                 onSelectItem = { item ->
                     state = AppState.MovieDetail(current.ctx, item, returnState = current)
@@ -852,6 +959,7 @@ private fun AppRoot() {
             onSelectSection = { section -> selectSection(current.ctx, section) },
             onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
             onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+            account = localAccount,
         ) {
             ShowSeasonsScreen(
                 server = current.ctx.server,
@@ -890,19 +998,44 @@ private fun AppRoot() {
             onSelectSection = { section -> selectSection(current.ctx, section) },
             onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
             onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+            account = localAccount,
         ) {
             ShowEpisodesScreen(
                 server = current.ctx.server,
                 showTitle = current.show.title,
                 seasonTitle = current.season.title,
                 episodes = current.episodes,
-                // Solo, always — see onResume's matching comment above.
-                // Picking an episode from the list is playback, not Watch
-                // Together.
+                // Design spec 05c: a screen, not a menu — see EpisodeDetail's
+                // doc comment. Play/Watch Together are chosen there now.
                 onSelect = { episode ->
+                    state = AppState.EpisodeDetail(current.ctx, current.show, episode, current)
+                },
+                onBack = {
+                    state = AppState.ShowSeasons(current.ctx, current.show, current.seasons, current.returnState)
+                },
+            )
+        }
+        is AppState.EpisodeDetail -> AppNavigationDrawer(
+            sections = current.ctx.sections,
+            selectedSectionKey = current.ctx.selectedSection.key,
+            isSettingsSelected = false,
+            isHomeSelected = false,
+            onSelectSection = { section -> selectSection(current.ctx, section) },
+            onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
+            onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+            account = localAccount,
+        ) {
+            EpisodeDetailScreen(
+                server = current.ctx.server,
+                showTitle = current.show.title,
+                episode = current.episode,
+                onBack = { returnTo(current.returnState) },
+                // Resume — solo, respects the episode's own viewOffset as
+                // reported by Plex (same path onResume/Play already use).
+                onPlay = {
                     scope.launch {
                         val fetched = runCatching {
-                            PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
+                            PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(current.episode.ratingKey)
                         }
                         state = fetched.fold(
                             onSuccess = { detail -> AppState.Player(current.ctx.server, detail, current, relay = null) },
@@ -910,19 +1043,101 @@ private fun AppRoot() {
                         )
                     }
                 },
-                onBack = {
-                    state = AppState.ShowSeasons(current.ctx, current.show, current.seasons, current.returnState)
+                // Only ever rendered alongside Resume — forces playback from
+                // 0 regardless of Plex's own reported viewOffset. No new
+                // PlayerScreen plumbing needed: it reads its start position
+                // straight off detail.viewOffset, so zeroing it here is the
+                // whole fix.
+                onPlayFromStart = {
+                    scope.launch {
+                        val fetched = runCatching {
+                            PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(current.episode.ratingKey)
+                        }
+                        state = fetched.fold(
+                            onSuccess = { detail ->
+                                AppState.Player(current.ctx.server, detail.copy(viewOffset = 0L), current, relay = null)
+                            },
+                            onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
+                        )
+                    }
+                },
+                // Watch Together — mirrors MovieDetail's onWatchTogether
+                // exactly, parameterized on this episode's ratingKey. Design
+                // spec 05c: "a room opened here carries the episode," so the
+                // Home card's title reads "Show · S1E3" once the room is
+                // created (see onDeckDisplayTitle-style formatting).
+                onWatchTogether = {
+                    scope.launch {
+                        val hostName = localAccount?.username ?: "Host"
+                        val settings = context.appSettingsStore.observe().first()
+                        val defaultRelay = settings.defaultRelay
+                        if (defaultRelay == null) {
+                            state = AppState.Settings(
+                                current.ctx,
+                                returnState = current,
+                                relayHint = "Add a relay to watch with friends.",
+                            )
+                            return@launch
+                        }
+                        val episode = current.episode
+                        val roomTitle = buildString {
+                            append(current.show.title)
+                            episode.parentIndex?.let { season -> episode.index?.let { ep -> append(" · S${season}E$ep") } }
+                        }
+                        val relay = ensureRelayClient(
+                            defaultRelay.url,
+                            RoomIntent.Create(
+                                title = roomTitle,
+                                thumb = episode.thumb,
+                                ratingKey = episode.ratingKey,
+                                hostName = hostName,
+                                maxSeats = settings.maxHostSeats,
+                            ),
+                        )
+                        if (relay == null) {
+                            state = AppState.Settings(
+                                current.ctx,
+                                returnState = current,
+                                relayHint = "Add a relay to watch with friends.",
+                            )
+                        } else {
+                            val fetched = runCatching {
+                                PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
+                            }
+                            state = fetched.fold(
+                                onSuccess = { detail ->
+                                    AppState.Lobby(
+                                        current.ctx.server,
+                                        detail,
+                                        current,
+                                        relay,
+                                        hostName,
+                                        defaultRelay.nickname,
+                                        thumb = episode.thumb,
+                                        isHost = true,
+                                    )
+                                },
+                                onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
+                            )
+                        }
+                    }
                 },
             )
         }
         is AppState.Lobby -> key(current.detail.ratingKey) {
             LobbyScreen(
+                server = current.server,
                 detail = current.detail,
                 localUsername = localAccount?.username ?: "You",
                 localAvatarUrl = localAccount?.thumb,
                 hostName = current.hostName,
                 relayNickname = current.relayNickname,
                 relay = current.relay,
+                onHostOnAnother = if (current.isHost) {
+                    { scope.launch { hostOnAnotherRelay(current) } }
+                } else {
+                    null
+                },
                 onStart = { state = AppState.Player(current.server, current.detail, current.returnState, current.relay) },
                 onBack = {
                     releaseRelayClient()
@@ -941,6 +1156,7 @@ private fun AppRoot() {
                     returnTo(current.returnState)
                 },
             )
+        }
         }
     }
 }

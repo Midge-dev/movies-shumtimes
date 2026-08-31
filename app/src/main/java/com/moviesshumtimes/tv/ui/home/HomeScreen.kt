@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -28,6 +31,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,9 +56,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
@@ -69,11 +76,15 @@ import com.moviesshumtimes.tv.ui.kit.ShumCardContainer
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.kit.drawGlow
 import com.moviesshumtimes.tv.ui.theme.AppOnSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppScrim
+import com.moviesshumtimes.tv.ui.theme.AppSurface
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
+import com.moviesshumtimes.tv.ui.theme.NeonPurpleGradient
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TYPE_EPISODE = "episode"
@@ -99,7 +110,7 @@ fun HomeScreen(
     // gone (see MainActivity's hostedRoomIds/RelayIdentity.hostedRooms).
     // Surfaces one "End session" control per hosted room that's still live.
     hostedRoomIds: Set<String>,
-    onEndSession: (MergedRoom) -> Unit,
+    onEndSession: suspend (MergedRoom) -> Boolean,
     onSelectRoom: (MergedRoom) -> Unit,
     onResume: (PlexOnDeckItem) -> Unit,
     onRemove: (PlexOnDeckItem) -> Unit,
@@ -126,12 +137,25 @@ fun HomeScreen(
     val recentlyAddedGetsFocus = !watchTogetherGetsFocus && !continueWatchingGetsFocus && recentlyAdded.isNotEmpty()
     val suggestionsGetsFocus =
         !watchTogetherGetsFocus && !continueWatchingGetsFocus && !recentlyAddedGetsFocus && suggestions.isNotEmpty()
+    // Design spec 09b: "scroll Home to the top ... focus to the first card"
+    // — a room can appear while the user is scrolled down browsing
+    // Suggestions (rooms are polled every 5s regardless of scroll position),
+    // so appearing focused isn't enough on its own if the row itself is
+    // still off-screen above the viewport. Named state so this effect can
+    // drive it explicitly; every other row already relied on the LazyColumn's
+    // own focus-driven scroll-into-view, which only reaches a target that's
+    // already been given focus — this covers getting *back to the row itself*
+    // first.
+    val homeListState = rememberLazyListState()
     // Keyed on watchTogetherGetsFocus (a derived boolean), not the raw
     // liveRooms list — liveRooms is polled every 5s and gets a new list
     // instance each time even when nothing changed, which would otherwise
     // re-run this focus grab on every poll tick and yank focus back to the
     // top of the screen out from under whatever the user had scrolled to.
     LaunchedEffect(watchTogetherGetsFocus, onDeck, recentlyAdded, suggestions) {
+        if (watchTogetherGetsFocus) {
+            runCatching { homeListState.animateScrollToItem(0) }
+        }
         repeat(5) {
             if (runCatching { firstItemFocus.requestFocus() }.isSuccess) return@LaunchedEffect
             withFrameNanos {}
@@ -145,6 +169,7 @@ fun HomeScreen(
     // Continue Watching's row scrolled past the bottom edge). LazyColumn's
     // focus-driven scroll-into-view is what makes Down actually work here.
     LazyColumn(
+        state = homeListState,
         modifier = Modifier.fillMaxSize(),
         // Without this the Suggestions row (always last) sat flush against
         // the screen edge — no row after it to supply trailing space, unlike
@@ -270,7 +295,7 @@ private fun WatchTogetherRow(
     rooms: List<MergedRoom>,
     myRoomId: String?,
     hostedRoomIds: Set<String>,
-    onEndSession: (MergedRoom) -> Unit,
+    onEndSession: suspend (MergedRoom) -> Boolean,
     onSelectRoom: (MergedRoom) -> Unit,
     firstCardFocusRequester: FocusRequester?,
 ) {
@@ -278,7 +303,6 @@ private fun WatchTogetherRow(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val relayCount = remember(rooms) { rooms.map { it.relay.id }.distinct().size }
-    val hostedRooms = rooms.filter { it.room.roomId in hostedRoomIds }
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -293,31 +317,25 @@ private fun WatchTogetherRow(
                 color = AppOnSurfaceVariant,
             )
         }
+        // Design spec section 11: a room you host is the same card everyone
+        // else sees, with one more button — no second row type. Supersedes
+        // an earlier draft of this section that put hosted rooms in their
+        // own strip above the directory.
         LazyRow(
             state = listState,
-            contentPadding = PaddingValues(horizontal = 32.dp),
+            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = Modifier.padding(bottom = 16.dp),
         ) {
-            // Separate tiles, not folded into each hostedRoom's own RoomCard
-            // — that card's click already means Rejoin, and ending a room
-            // you're hosting is a distinct, more consequential action that
-            // deserves its own target rather than overloading a gesture. One
-            // tile per room this device currently hosts, since a device can
-            // host more than one room at once (e.g. across different relays).
-            items(hostedRooms, key = { "end-session:${it.room.roomId}" }) { hostedRoom ->
-                EndSessionTile(title = hostedRoom.room.title, onEndSession = { onEndSession(hostedRoom) })
-            }
             itemsIndexed(rooms, key = { _, merged -> "${merged.relay.id}:${merged.room.roomId}" }) { index, merged ->
                 RoomCard(
                     server = server,
                     merged = merged,
                     isMine = merged.room.roomId == myRoomId,
+                    isHosted = merged.room.roomId in hostedRoomIds,
                     onClick = { onSelectRoom(merged) },
-                    modifier = if (index == 0 && firstCardFocusRequester != null) {
-                        Modifier.focusRequester(firstCardFocusRequester)
-                    } else {
-                        Modifier
-                    },
+                    onEndSession = onEndSession,
+                    joinFocusRequester = if (index == 0) firstCardFocusRequester else null,
                 )
             }
             if (rooms.size > VISIBLE_ROOM_CARDS) {
@@ -332,109 +350,209 @@ private fun WatchTogetherRow(
     }
 }
 
+// Design spec section 11: identical 300dp card for every room, hosted or
+// not — same artwork, host line, relay line, focus border/glow/scale (all
+// from ShumArtwork/ShumButton's own established treatment; nothing card-wide
+// is hand-rolled here). A room you host reads as yours from three things:
+// the "You're hosting" badge, "You hosting" replacing the host line, and a
+// second action. Join keeps its place, weight and label on every card,
+// including your own, so the first thing under focus is always the way in,
+// never the way to end it. Supersedes an earlier draft that made the poster
+// itself the click target — every action is now its own focusable pill,
+// consistent with section 10's "every control is a focusable surface".
 @Composable
 private fun RoomCard(
     server: PlexServer,
     merged: MergedRoom,
     isMine: Boolean,
+    isHosted: Boolean,
     onClick: () -> Unit,
+    onEndSession: suspend (MergedRoom) -> Boolean,
     modifier: Modifier = Modifier,
+    joinFocusRequester: FocusRequester? = null,
 ) {
     val room = merged.room
+    val scope = rememberCoroutineScope()
     val full = room.occupants >= room.maxSeats
-    val label = when {
+    val joinLabel = when {
         full -> "Full"
         isMine -> "Rejoin"
         else -> "Join"
     }
-    ShumCardContainer(
-        modifier = modifier.width(300.dp),
-        imageCard = { interactionSource ->
-            ShumCard(
-                onClick = onClick,
-                enabled = !full,
-                interactionSource = interactionSource,
-                modifier = Modifier.fillMaxWidth().height(104.dp),
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    ShumArtwork(
-                        model = PlexImageUrl.of(server, room.thumb),
-                        contentDescription = room.title,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, AppScrim.copy(alpha = 0.85f)))),
-                    )
+    // End session ends the room immediately regardless of who's seated in
+    // it — no confirm step. Failure is quiet: the card stays, its dot
+    // greys, the button reads "Can't reach relay" for four seconds, then
+    // reverts. Nothing is queued — an unreachable relay isn't holding the
+    // room open either.
+    var failed by remember(room.roomId) { mutableStateOf(false) }
+
+    LaunchedEffect(failed) {
+        if (failed) {
+            delay(4_000)
+            failed = false
+        }
+    }
+
+    fun endNow() {
+        scope.launch { if (!onEndSession(merged)) failed = true }
+    }
+
+    // "Identical 300dp card for every room, hosted or not — same artwork,
+    // same host line, same relay line, same focus border, glow and 1.04
+    // scale" (design spec section 11). The card is a focusGroup of several
+    // independent button pills now rather than one FocusableSurface, so this
+    // reaches for the same glow/scale by hand rather than through
+    // FocusableSurface — same idiom the old HostedRoomCard used, and for the
+    // same reason (ContinueWatchingPoster's confirm overlay too).
+    var cardFocused by remember { mutableStateOf(false) }
+    val cardScale by animateFloatAsState(
+        targetValue = if (cardFocused) 1.04f else 1f,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow),
+        label = "roomCardFocusScale",
+    )
+    // Join sits well below the card's own top edge now (poster, host row,
+    // relay row all come first) — the LazyColumn's *default* focus-scroll
+    // only guarantees the specific focused button's own small rect is
+    // visible, not the card it belongs to, so it was leaving the poster
+    // scrolled out above the viewport whenever focus landed on a button.
+    // Explicitly requesting the whole card's bounds on focus is what
+    // BringIntoViewRequester exists for.
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+
+    // Mirrors FocusableSurface's own canonical modifier order (drawGlow, then
+    // clip, then background, then border) rather than inventing a new one —
+    // glow has to be drawn *before* the clip so its outward reach isn't cut
+    // off by the card's own rounded-rect bounds, exactly the ordering bug
+    // that would otherwise make the glow invisible.
+    Column(
+        modifier = modifier
+            .width(300.dp)
+            .zIndex(if (cardFocused) 1f else 0f)
+            .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
+            .let { if (cardFocused) it.drawGlow(RoomCardShape, NeonPurpleGlow, 14.dp, 0.22f) else it }
+            .clip(RoomCardShape)
+            .background(AppSurface, RoomCardShape)
+            .let { if (cardFocused) it.border(BorderStroke(2.dp, NeonPurpleGradient), RoomCardShape) else it }
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .focusGroup()
+            .onFocusChanged { state ->
+                cardFocused = state.hasFocus
+                if (state.hasFocus) scope.launch { runCatching { bringIntoViewRequester.bringIntoView() } }
+            },
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().height(104.dp)) {
+            ShumArtwork(
+                model = PlexImageUrl.of(server, room.thumb),
+                contentDescription = room.title,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, AppScrim.copy(alpha = 0.85f)))),
+            )
+            Text(
+                text = room.title,
+                color = AppWhite,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(14.dp),
+            )
+            if (isHosted || isMine) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                        .background(NeonPurple.copy(alpha = 0.9f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                ) {
+                    Text(text = if (isHosted) "You're hosting" else "You're in", color = AppWhite, style = roomBadgeStyle)
+                }
+            }
+        }
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // 34dp initial-letter avatar next to a two-line host/occupancy
+            // stack — same accent@.35 fallback idiom as every other avatar
+            // in this app (LobbyPersonCard, PersonFilmographyScreen), just
+            // smaller. Missing from the very first pass of this card; the
+            // design mockup pairs it with the host line, not text alone.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier.size(34.dp).clip(CircleShape).background(NeonPurple.copy(alpha = 0.35f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(text = room.hostName.take(1).uppercase(), color = AppWhite, style = roomAvatarInitialStyle)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = room.title,
-                        color = AppWhite,
+                        text = if (isHosted) "You hosting" else "${room.hostName} hosting",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(14.dp),
                     )
-                    if (isMine) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(10.dp)
-                                .background(NeonPurple.copy(alpha = 0.9f), RoundedCornerShape(50))
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                        ) {
-                            Text(text = "You're in", color = AppWhite)
-                        }
+                    Text(
+                        text = "${room.occupants} of ${room.maxSeats} watching",
+                        color = AppOnSurfaceVariant,
+                    )
+                }
+            }
+            // Design spec 09d: one line, dot + "Available on <nickname>" —
+            // the only new content a merged multi-relay view adds to an
+            // otherwise unchanged 09b card.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier.width(6.dp).height(6.dp)
+                        .background(if (isHosted && failed) AppOnSurfaceVariant else NeonPurple, RoundedCornerShape(50)),
+                )
+                Text(text = "Available on ${merged.relay.nickname}", color = AppOnSurfaceVariant)
+            }
+            Row(
+                // 16dp, not 8 — anything less than the shared 14dp glow
+                // radius (FocusableSurface's ShumGlow default) means a
+                // focused button's glow visually washes over its neighbor's
+                // own idle fill, reading as a smear of stacked colors rather
+                // than two distinct controls. Same spacing and the same
+                // `compact` buttons as ContinueWatchingPoster's Remove/
+                // Cancel pair — two cards with a same-shaped action-pair
+                // problem should look and behave identically.
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Design spec 11's action row is the last thing in the card,
+                // with nothing focusable above it (the text lines above
+                // aren't focus targets) — without an explicit `up`, Compose's
+                // default spatial search falls back to the nearest focusable
+                // it can find at all, which on Home's very first row is the
+                // nav drawer's rail. Landing there and immediately bouncing
+                // back out reads as the drawer flickering open/closed, same
+                // bug class as this app's other documented focus-escape
+                // fixes (see AppNavigationDrawer's own history). Cancel
+                // consumes the key press instead of searching further; left/
+                // right/down are untouched since those need to keep working
+                // (between the two pills, and down into Continue Watching).
+                val blockUpEscape = Modifier.focusProperties { up = FocusRequester.Cancel }
+                if (isHosted && failed) {
+                    Text(text = "Can't reach relay", color = AppOnSurfaceVariant)
+                } else {
+                    ShumButton(
+                        onClick = onClick,
+                        enabled = !full,
+                        compact = true,
+                        modifier = blockUpEscape.let {
+                            if (joinFocusRequester != null) it.focusRequester(joinFocusRequester) else it
+                        },
+                    ) { Text(joinLabel) }
+                    if (isHosted) {
+                        ShumOutlinedButton(onClick = { endNow() }, compact = true, modifier = blockUpEscape) { Text("End session") }
                     }
                 }
             }
-        },
-        title = {
-            Column(modifier = Modifier.padding(top = 12.dp)) {
-                Text(text = label, color = AppOnSurfaceVariant)
-                Text(
-                    text = "${room.hostName} hosting",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "${room.occupants} of ${room.maxSeats} watching",
-                    color = AppOnSurfaceVariant,
-                )
-                // Design spec 09d: one line, dot + "Available on <nickname>"
-                // — the only new content a merged multi-relay view adds to
-                // an otherwise unchanged 09b card.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(modifier = Modifier.width(6.dp).height(6.dp).background(NeonPurple, shape = RoundedCornerShape(50)))
-                    Text(text = "Available on ${merged.relay.nickname}", color = AppOnSurfaceVariant)
-                }
-            }
-        },
-    )
-}
-
-// A deliberate, always-visible control for the room this device hosts — not
-// gated behind focus or a long-press, since ending a session other people
-// may still be watching deserves a plainly-labeled target, not a hidden
-// gesture. A single press ends it outright, no confirm step: same "removing
-// asks nothing" convention as Settings' relay Remove, and this control only
-// exists in the first place because the user asked for a manual way to do
-// exactly this.
-@Composable
-private fun EndSessionTile(title: String, onEndSession: () -> Unit, modifier: Modifier = Modifier) {
-    ShumOutlinedButton(onClick = onEndSession, modifier = modifier.width(168.dp).height(64.dp)) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            Text(text = "End session", style = ShumTypography.bodyLarge, textAlign = TextAlign.Center)
-            Text(
-                text = "\"$title\"",
-                style = ShumTypography.bodyLarge.copy(fontSize = ShumTypography.bodyLarge.fontSize * 0.8f),
-                color = AppOnSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }
+
+private val RoomCardShape = RoundedCornerShape(8.dp)
+private val roomBadgeStyle = TextStyle(fontSize = 10.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Medium)
+private val roomAvatarInitialStyle = TextStyle(fontSize = 12.sp)
 
 @Composable
 private fun OverflowTile(count: Int, onClick: () -> Unit) {
@@ -735,12 +853,17 @@ private fun RemoveConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Remove from Continue Watching?", textAlign = TextAlign.Center, style = ShumTypography.bodyLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 16dp + compact, matching RoomCard's Join/End session pair —
+            // same "two actions in one card" shape, so it should look and
+            // behave the same. Anything tighter than the shared 14dp glow
+            // radius lets a focused button's glow wash over its neighbor.
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ShumButton(
                     onClick = onConfirm,
+                    compact = true,
                     modifier = Modifier.focusRequester(removeFocus),
                 ) { Text("Remove") }
-                ShumButton(onClick = onCancel) { Text("Cancel") }
+                ShumButton(onClick = onCancel, compact = true) { Text("Cancel") }
             }
         }
     }

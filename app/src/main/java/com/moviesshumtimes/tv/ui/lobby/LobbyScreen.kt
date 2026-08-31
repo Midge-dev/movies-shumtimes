@@ -1,7 +1,6 @@
 package com.moviesshumtimes.tv.ui.lobby
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -32,12 +31,12 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
 import coil3.compose.AsyncImage
-import com.moviesshumtimes.tv.R
+import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
+import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.settings.ChatOverlayCorner
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
 import com.moviesshumtimes.tv.sync.ChatMessage
@@ -50,16 +49,19 @@ import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import com.moviesshumtimes.tv.ui.common.RelayStatusDot
 import com.moviesshumtimes.tv.ui.common.RelayStatusLine
+import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
 import com.moviesshumtimes.tv.ui.common.rememberRelayStatus
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.theme.AppBackground
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
+import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
@@ -81,6 +83,7 @@ private data class RosterEntry(val username: String, val avatarUrl: String?, val
 // so it survives the transition into PlayerScreen instead of reconnecting.
 @Composable
 fun LobbyScreen(
+    server: PlexServer,
     detail: PlexMovieDetail,
     localUsername: String,
     localAvatarUrl: String?,
@@ -92,6 +95,11 @@ fun LobbyScreen(
     // Design spec 09d — shown next to the title with the connection dot.
     relayNickname: String,
     relay: RelayClient,
+    // Non-null only for the host's own Lobby, and only when another
+    // configured relay exists to fail over to — a guest can't rehost
+    // someone else's room, and there's nothing to offer with just one relay
+    // configured. See MainActivity's hostOnAnotherRelay.
+    onHostOnAnother: (() -> Unit)?,
     onStart: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -124,6 +132,21 @@ fun LobbyScreen(
     // above while the modal is open — dismisses just the modal on Back
     // instead of leaving the whole lobby.
     BackHandler(enabled = showChatModal) { showChatModal = false }
+
+    // The room this Lobby is waiting on just ended — either the host closed
+    // it (ROOM_CLOSED, the explicit signal every seat now gets) or it's
+    // simply gone by the time a reconnect attempt lands (ROOM_NOT_FOUND).
+    // Without this, whoever's waiting here just sees RelayStatusLine's
+    // generic "Can't reach {relay}" failure, which reads as a connectivity
+    // problem rather than the deliberate end it actually was. onBack already
+    // does exactly what's needed: release the connection and return to
+    // wherever this Lobby was opened from (Home, for anyone who joined from
+    // the room directory).
+    LaunchedEffect(connectionState) {
+        if (connectionState == ConnectionState.ROOM_CLOSED || connectionState == ConnectionState.ROOM_NOT_FOUND) {
+            onBack()
+        }
+    }
 
     LaunchedEffect(relay, connectionState) {
         if (connectionState == ConnectionState.CONNECTED) {
@@ -160,13 +183,26 @@ fun LobbyScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(R.drawable.lobby_background),
+        // Design spec 09d: "Background is the item's own art (backdrop, or
+        // the poster blurred and cropped when there is no 16:9 art) under a
+        // vertical #0D0D12 scrim, 62% at the top to 92% at the bottom. The
+        // scrim is what carries the contrast — every piece of text here is
+        // measured against the darkest stop, not against the art." Replaces
+        // a bundled generic background drawable with the actual title's art.
+        ShumArtwork(
+            model = PlexImageUrl.of(server, detail.art ?: detail.thumb),
             contentDescription = null,
-            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        Box(modifier = Modifier.fillMaxSize().background(AppScrim.copy(alpha = 0.78f)))
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(AppBackground.copy(alpha = 0.62f), AppBackground.copy(alpha = 0.92f)),
+                    ),
+                ),
+        )
 
         Column(
             modifier = Modifier.fillMaxSize().padding(48.dp),
@@ -241,15 +277,15 @@ fun LobbyScreen(
         )
 
         // Design spec 09d: pinned to the bottom, never a modal, never
-        // blocking Play/Watch Together/Start. Host-on-another-relay isn't
-        // wired up yet (needs the relay list threaded down from
-        // MainActivity) — Retry re-attempts the same relay immediately.
+        // blocking Play/Watch Together/Start. Retry re-attempts the same
+        // relay immediately; Host on another relay only renders for a host
+        // with somewhere else to go (see onHostOnAnother's doc comment).
         Box(modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(0.6f).padding(32.dp)) {
             RelayStatusLine(
                 status = relayStatus,
                 relayNickname = relayNickname,
                 onRetry = { relay.retryNow() },
-                onHostOnAnother = null,
+                onHostOnAnother = onHostOnAnother,
             )
         }
 

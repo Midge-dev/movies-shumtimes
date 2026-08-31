@@ -1,10 +1,13 @@
 package com.moviesshumtimes.tv.ui.library
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +18,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -27,6 +31,8 @@ import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.kit.ShumCard
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.theme.AppScrim
+import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
 @Composable
 fun ShowEpisodesScreen(
@@ -73,6 +79,16 @@ fun ShowEpisodesScreen(
     }
 }
 
+// Design spec 05c: same 4dp bar as Continue Watching — track #000@40%, fill
+// accent, flush to the bottom edge, drawn inside the artwork's own clip so
+// the row reads as a progress map of the season at a glance. Renders only
+// when there's an actual resume point; a finished episode shows a full bar,
+// an untouched one shows none.
+private fun episodeProgressFraction(episode: PlexEpisode): Float {
+    val duration = episode.duration?.takeIf { it > 0 } ?: return 0f
+    return ((episode.viewOffset ?: 0L).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+}
+
 // WideCardContainer (tv-material3) doesn't expose a gap parameter between
 // its imageCard and title/description slots — the text sat right against
 // the thumbnail's edge (reported as overlapping). Same move as elsewhere in
@@ -86,11 +102,25 @@ private fun EpisodeRow(server: PlexServer, episode: PlexEpisode, onClick: () -> 
             onClick = onClick,
             modifier = modifier.width(160.dp).height(90.dp),
         ) {
-            ShumArtwork(
-                model = PlexImageUrl.of(server, episode.thumb),
-                contentDescription = episode.title,
-                modifier = Modifier.fillMaxSize(),
-            )
+            Box(modifier = Modifier.fillMaxSize()) {
+                ShumArtwork(
+                    model = PlexImageUrl.of(server, episode.thumb),
+                    contentDescription = episode.title,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                val progress = episodeProgressFraction(episode)
+                if (progress > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .background(AppScrim.copy(alpha = 0.4f)),
+                    ) {
+                        Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(NeonPurple))
+                    }
+                }
+            }
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(text = heading, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -154,7 +154,9 @@ fun RelayStatusLine(
         }
         RelayStatus.Failed -> Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Can't reach $relayNickname")
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // 16dp, not 14's own glow radius — anything tighter and a
+            // focused button's glow washes over its sibling's border.
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ShumOutlinedButton(onClick = onRetry) { Text("Retry") }
                 if (onHostOnAnother != null) {
                     ShumOutlinedButton(onClick = onHostOnAnother) { Text("Host on another relay") }

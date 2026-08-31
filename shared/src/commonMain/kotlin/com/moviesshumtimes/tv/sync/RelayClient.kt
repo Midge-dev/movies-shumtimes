@@ -33,7 +33,13 @@ private const val MAX_BACKOFF_MS = 30_000L
 // relay's old single-tenant "hello" envelope is gone; every device
 // connection now states its room intent up front.
 sealed interface RoomIntent {
-    data class Create(val title: String, val thumb: String?, val ratingKey: String?, val hostName: String) : RoomIntent
+    // maxSeats: design spec section 14 "Maximum seats" — a client-side cap on
+    // rooms this device hosts, sent with the room when it opens; the relay
+    // clamps it to its own MAX_DEVICE_SEATS ceiling rather than trusting it
+    // outright. Null lets the relay fall back to its own default (joining a
+    // room, or an older client that never set the setting, needs no opinion).
+    data class Create(val title: String, val thumb: String?, val ratingKey: String?, val hostName: String, val maxSeats: Int? = null) :
+        RoomIntent
     data class Join(val roomId: String) : RoomIntent
 }
 
@@ -137,6 +143,7 @@ class RelayClient(
                             currentIntent.thumb?.let { put("thumb", it) }
                             currentIntent.ratingKey?.let { put("ratingKey", it) }
                             put("hostName", currentIntent.hostName)
+                            currentIntent.maxSeats?.let { put("maxSeats", it) }
                         }
                         is RoomIntent.Join -> {
                             put("type", "joinRoom")
@@ -186,6 +193,17 @@ class RelayClient(
             "notFound" -> {
                 lastRejection = ConnectionState.ROOM_NOT_FOUND
                 _connectionState.value = ConnectionState.ROOM_NOT_FOUND
+            }
+            // The host ended this room on purpose (see relay/server.js's
+            // /rooms/:roomId/close, which now notifies every occupied seat,
+            // not just the host's own). The relay closes this socket right
+            // after sending this frame — manuallyDisconnected=true here
+            // stops the resulting disconnect from scheduling a pointless
+            // reconnect against a room that's gone for good, which would
+            // otherwise silently overwrite this state.
+            "closed" -> {
+                manuallyDisconnected = true
+                _connectionState.value = ConnectionState.ROOM_CLOSED
             }
             "event" -> {
                 val payload = root["payload"] ?: return
