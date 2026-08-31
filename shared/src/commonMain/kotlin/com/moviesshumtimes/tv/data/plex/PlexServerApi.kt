@@ -101,8 +101,17 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
     // includeReviews=1 is what makes the server attach the Review[] array
     // (Rotten Tomatoes critic quotes) to the response — confirmed this
     // session against a real server; without it Review is simply absent.
-    suspend fun fetchMovieDetail(ratingKey: String): PlexMovieDetail =
-        get<MovieDetailResponse>("${server.baseUrl}/library/metadata/$ratingKey?includeReviews=1").mediaContainer.items.first()
+    suspend fun fetchMovieDetail(ratingKey: String): PlexMovieDetail {
+        val items = get<MovieDetailResponse>("${server.baseUrl}/library/metadata/$ratingKey?includeReviews=1").mediaContainer.items
+        // An empty items array is a real response shape, not a parsing
+        // failure — it's what the server returns for a ratingKey that was
+        // deleted/moved from the library since whatever list linked here was
+        // loaded. Every caller already wraps this call in runCatching and
+        // surfaces exceptionOrNull()?.message, so this exists purely to make
+        // that message say something useful instead of a bare
+        // NoSuchElementException.
+        return items.firstOrNull() ?: throw NoSuchElementException("This title is no longer available on the server.")
+    }
 
     // Confirmed this session against a real server: a single call to
     // /related returns both a "Related Movies" hub and, when the top-billed

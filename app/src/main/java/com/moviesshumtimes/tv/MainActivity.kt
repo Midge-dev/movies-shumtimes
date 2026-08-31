@@ -72,6 +72,7 @@ import com.moviesshumtimes.tv.ui.settings.SettingsScreen
 import com.moviesshumtimes.tv.ui.splash.SplashScreen
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -329,6 +330,13 @@ private fun AppRoot() {
     var hostedRoomIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val relayDirectoryApi = remember { RelayDirectoryApi() }
     LaunchedEffect(Unit) {
+        // One in-flight poll per relay id at a time — without this, a slow or
+        // waking relay (the exact case this loop's own comment calls out)
+        // accumulated an additional concurrent request every 5s indefinitely
+        // instead of just waiting for the previous one, and two overlapping
+        // requests for the same relay could also complete out of order,
+        // letting a stale response overwrite a newer one.
+        val pollJobs = mutableMapOf<String, Job>()
         while (true) {
             if (state is AppState.Home) {
                 // Two entries can point at the same physical relay (e.g. the
@@ -344,8 +352,10 @@ private fun AppRoot() {
                 val stillConfigured = relays.map { it.id }.toSet()
                 liveRoomsByRelay = liveRoomsByRelay.filterKeys { it in stillConfigured }
                 hostedRoomIds = context.relayIdentityStore.load().hostedRooms.map { it.roomId }.toSet()
+                pollJobs.keys.retainAll(stillConfigured)
                 for (entry in relays) {
-                    launch {
+                    if (pollJobs[entry.id]?.isActive == true) continue
+                    pollJobs[entry.id] = launch {
                         val rooms = relayDirectoryApi.listRooms(entry.url)
                         liveRoomsByRelay = liveRoomsByRelay + (entry.id to rooms)
                     }

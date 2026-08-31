@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
@@ -152,7 +153,18 @@ fun RelayStatusLine(
             RelayStatusDot(status)
             Text("Reconnecting", color = AppOnSurfaceVariant)
         }
-        RelayStatus.Failed -> Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // onExit traps a focus-search attempt that fires the instant this Failed
+        // branch (and whichever of its buttons had focus) is removed from
+        // composition — e.g. Retry reconnecting successfully out from under the
+        // user. Without it, Compose's fallback can escape to the nav drawer,
+        // same bug class as this app's other documented focus-escape fixes.
+        // This component doesn't know a specific sibling to redirect to (it's
+        // reused from both Lobby and Settings), so cancelling is the safe
+        // default rather than a wrong guess at a restore target.
+        RelayStatus.Failed -> Column(
+            modifier = modifier.focusProperties { onExit = { cancelFocusChange() } },
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text("Can't reach $relayNickname")
             // 16dp, not 14's own glow radius — anything tighter and a
             // focused button's glow washes over its sibling's border.

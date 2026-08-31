@@ -8,6 +8,8 @@ import com.russhwolf.settings.coroutines.getStringOrNullFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -118,6 +120,14 @@ private data class BaseSettings(
 // class never touches Context/NSUserDefaults itself, only the portable
 // Settings abstraction).
 class SettingsStore(private val settings: ObservableSettings) {
+    // Guards migrateLegacyRelayUrlIfNeeded below — observe() can have more
+    // than one collector (e.g. two screens both observing settings at cold
+    // start), and without this, two collectors can both see an empty
+    // relays list + a legacy URL before either write propagates back
+    // through ObservableSettings, each writing their own migrated entry and
+    // leaving two duplicate "My relay" rows behind.
+    private val migrationMutex = Mutex()
+
     @OptIn(ExperimentalSettingsApi::class)
     fun observe(): Flow<AppSettings> {
         val base = combine(
@@ -156,15 +166,19 @@ class SettingsStore(private val settings: ObservableSettings) {
         return runCatching { relayListJson.decodeFromString<List<RelayEntry>>(json) }.getOrDefault(emptyList())
     }
 
-    private suspend fun migrateLegacyRelayUrlIfNeeded(current: AppSettings): AppSettings {
-        if (current.relays.isNotEmpty()) return current
-        val legacyUrl = settings.getStringOrNull(RELAY_URL_KEY)?.takeIf { it.isNotBlank() } ?: return current
+    private suspend fun migrateLegacyRelayUrlIfNeeded(current: AppSettings): AppSettings = migrationMutex.withLock {
+        if (current.relays.isNotEmpty()) return@withLock current
+        // Re-check against the store itself, not just `current` — another
+        // collector could have already migrated and written through while
+        // this call was waiting on the lock above.
+        if (settings.getStringOrNull(RELAY_ENTRIES_KEY) != null) return@withLock current
+        val legacyUrl = settings.getStringOrNull(RELAY_URL_KEY)?.takeIf { it.isNotBlank() } ?: return@withLock current
         val migrated = current.copy(
             relays = listOf(RelayEntry(id = randomRelayId(), nickname = "My relay", url = legacyUrl, isDefault = true)),
         )
         save(migrated)
         settings.remove(RELAY_URL_KEY)
-        return migrated
+        migrated
     }
 
     suspend fun save(appSettings: AppSettings) {

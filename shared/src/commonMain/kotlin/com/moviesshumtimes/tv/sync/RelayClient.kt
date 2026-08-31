@@ -79,6 +79,11 @@ class RelayClient(
     private val json = Json { ignoreUnknownKeys = true }
     private var session: DefaultClientWebSocketSession? = null
     private var sessionJob: Job? = null
+    // Guards attemptConnect()'s finally block against a superseded attempt's
+    // cleanup running after a newer attempt has already taken over — see
+    // that finally block's own comment for the exact race (retryNow()
+    // cancelling then immediately restarting).
+    private var connectionGeneration = 0
     private var reconnectJob: Job? = null
     private var backoffMs = INITIAL_BACKOFF_MS
     private var manuallyDisconnected = false
@@ -121,6 +126,7 @@ class RelayClient(
         val currentIntent = intent ?: return
         lastRejection = null
         _connectionState.value = ConnectionState.CONNECTING
+        val myGeneration = ++connectionGeneration
         // One coroutine owns the whole connection lifecycle: opening the
         // session, sending the create/join request, and reading frames
         // until the session ends (gracefully or not — both cases fall
@@ -161,9 +167,18 @@ class RelayClient(
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
             } finally {
-                session = null
-                _seatIndex.value = null
-                scheduleReconnect()
+                // retryNow() cancels this job and starts a new attemptConnect()
+                // immediately; coroutine cancellation is asynchronous, so this
+                // block can still run after that newer attempt has already
+                // connected and taken over `session`/`_seatIndex`. Without this
+                // check, that would null out a connection that just succeeded
+                // and queue a spurious extra reconnect on top of it — only the
+                // attempt that's still the current generation gets to act.
+                if (myGeneration == connectionGeneration) {
+                    session = null
+                    _seatIndex.value = null
+                    scheduleReconnect()
+                }
             }
         }
     }

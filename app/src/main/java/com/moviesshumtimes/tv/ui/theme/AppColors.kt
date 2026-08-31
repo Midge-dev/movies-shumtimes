@@ -18,6 +18,11 @@ val NeonPurplePressed = Color(0xFF8F22B3)
 // itself (direction, stops, etc.), not just its two end colors.
 val NeonPurpleGradient: Brush = Brush.radialGradient(listOf(NeonPurpleGlow, NeonPurple))
 
+// Continue Watching's resume progress fill — same two tones as the focus
+// gradient above, but linear left-to-right since it's tracking a horizontal
+// fraction rather than radiating from a center point.
+val NeonPurpleProgressGradient: Brush = Brush.horizontalGradient(listOf(NeonPurple, NeonPurpleGlow))
+
 // tv-material3's default dark color tokens are tuned for close-up phone
 // viewing and read low-contrast from a couch on a real TV panel — this is
 // an explicit, higher-contrast dark palette instead of the library default.

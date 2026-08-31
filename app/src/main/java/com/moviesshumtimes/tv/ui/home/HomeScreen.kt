@@ -84,6 +84,7 @@ import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGradient
+import com.moviesshumtimes.tv.ui.theme.NeonPurpleProgressGradient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -795,7 +796,7 @@ private fun ContinueWatchingPoster(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .fillMaxWidth(progressFraction(item))
-                                .background(NeonPurple),
+                                .background(NeonPurpleProgressGradient),
                         )
                     }
                     Box(

@@ -21,6 +21,15 @@ const RECONNECT_GRACE_MS = 60_000;
 const EMPTY_ROOM_TIMEOUT_MS = 10 * 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const CHAT_HISTORY_LIMIT = 100;
+// A self-hosted relay for one friend group, not a public multi-tenant
+// service — these exist as a backstop against a single bad/malicious client
+// exhausting memory (one runaway room-creation loop, oversized strings piled
+// into chatHistory/room titles, or an unbounded pile of idle sockets), not
+// because real usage is expected anywhere near these numbers.
+const MAX_ROOMS = Number(process.env.MAX_ROOMS || 200);
+const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 500);
+const MAX_STRING_LEN = 200;
+const MAX_CLOSE_BODY_BYTES = 4_096;
 // Device seats reclaim themselves via reconnect tokens, but a chat peer
 // (a phone browser tab) has no such lifecycle — someone can leave the page
 // open long after the movie's over, holding a slot indefinitely. Kicking
@@ -36,12 +45,25 @@ const CHAT_MAX_SESSION_MS = 30 * 60_000;
 // seat.ws is null while the seat is reserved-but-disconnected.
 const rooms = new Map();
 
+function truncate(value, max = MAX_STRING_LEN) {
+  return typeof value === 'string' ? value.slice(0, max) : value;
+}
+
 function mintToken() {
   return crypto.randomBytes(24).toString('base64url');
 }
 
 function mintRoomId() {
   return crypto.randomBytes(6).toString('base64url');
+}
+
+// Shared by the WebSocket upgrade handler and the two plain-HTTP routes that
+// expose the same private data (the room directory) or a privileged action
+// (closing a room) — those two routes used to skip this check entirely
+// (only the upgrade handshake enforced it), so anyone who could reach the
+// HTTP port saw the full room directory regardless of RELAY_TOKEN.
+function isAuthorized(searchParams) {
+  return !TOKEN || searchParams.get('token') === TOKEN;
 }
 
 // Design spec section 14 "Maximum seats": a client-side cap on rooms a
@@ -59,10 +81,10 @@ function createRoomState({ title, thumb, ratingKey, hostName, maxSeats }) {
   const cappedSeats = clampMaxSeats(maxSeats);
   return {
     roomId: mintRoomId(),
-    title: String(title || 'Untitled'),
-    thumb: typeof thumb === 'string' ? thumb : null,
-    ratingKey: typeof ratingKey === 'string' ? ratingKey : null,
-    hostName: typeof hostName === 'string' && hostName ? hostName : 'Host',
+    title: truncate(String(title || 'Untitled')),
+    thumb: typeof thumb === 'string' ? truncate(thumb, 2_000) : null,
+    ratingKey: typeof ratingKey === 'string' ? truncate(ratingKey) : null,
+    hostName: typeof hostName === 'string' && hostName ? truncate(hostName) : 'Host',
     maxSeats: cappedSeats,
     seats: new Array(cappedSeats).fill(null),
     chatPeers: new Set(),
@@ -137,6 +159,10 @@ function releaseExpiredReservations() {
 }
 
 function handleCreateRoom(ws, msg) {
+  if (rooms.size >= MAX_ROOMS) {
+    ws.send(JSON.stringify({ type: 'full' }));
+    return;
+  }
   const peerId = typeof msg.peerId === 'string' && msg.peerId ? msg.peerId : crypto.randomUUID();
   const room = createRoomState({
     title: msg.title,
@@ -146,7 +172,16 @@ function handleCreateRoom(ws, msg) {
     maxSeats: msg.maxSeats,
   });
   rooms.set(room.roomId, room);
-  const result = assignSeat(ws, room, peerId); // always succeeds: fresh room, all seats empty
+  // Normally always succeeds (a fresh room's seats are all empty), except a
+  // misconfigured deployment (MAX_DEVICE_SEATS=0) would make even this
+  // first assignment fail — guard rather than crash the process on a bad
+  // env var.
+  const result = assignSeat(ws, room, peerId);
+  if (!result) {
+    rooms.delete(room.roomId);
+    ws.send(JSON.stringify({ type: 'full' }));
+    return;
+  }
   ws.send(JSON.stringify({
     type: 'welcome',
     roomId: room.roomId,
@@ -170,8 +205,14 @@ function handleJoinRoom(ws, msg) {
 
   const peerId = typeof msg.peerId === 'string' && msg.peerId ? msg.peerId : crypto.randomUUID();
   const existingIndex = room.seats.findIndex((seat) => seat && seat.peerId === peerId);
+  // A presented token that doesn't match its seat (partial local-storage
+  // clear, a regenerated peerId, etc.) falls through to claiming a fresh
+  // seat rather than failing outright — otherwise a device that lost just
+  // its token gets permanently told the room is full even when seats are
+  // open, since reclaimSeat's null only ever means "wrong token," not "no
+  // room."
   const result = existingIndex !== -1
-    ? reclaimSeat(ws, room, existingIndex, msg.reconnectToken)
+    ? reclaimSeat(ws, room, existingIndex, msg.reconnectToken) ?? assignSeat(ws, room, peerId)
     : assignSeat(ws, room, peerId);
 
   if (!result) {
@@ -217,6 +258,11 @@ function broadcastEvent(sender, payload) {
   const room = rooms.get(sender.roomId);
   if (!room) return;
   if (payload && payload.kind === 'chat') {
+    // Untrusted client input stored (chatHistory) and rebroadcast to every
+    // other peer — cap length so one oversized message can't grow memory or
+    // get replayed to every future joiner at that size forever.
+    payload.username = truncate(payload.username, 40);
+    payload.text = truncate(payload.text, 500);
     room.chatHistory.push(payload);
     if (room.chatHistory.length > CHAT_HISTORY_LIMIT) room.chatHistory.shift();
   }
@@ -255,13 +301,18 @@ function releaseConnection(ws) {
 // phone-facing chat page (see CHAT_PAGE_HTML below) and the room directory
 // the Home screen polls.
 const server = http.createServer((req, res) => {
-  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+  const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host}`);
   if (pathname === '/chat') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(CHAT_PAGE_HTML);
     return;
   }
   if (pathname === '/rooms') {
+    if (!isAuthorized(searchParams)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false }));
+      return;
+    }
     releaseExpiredReservations();
     const list = [];
     for (const room of rooms.values()) {
@@ -290,9 +341,29 @@ const server = http.createServer((req, res) => {
   // losing power/wifi never silently ends a room out from under a guest.
   const closeMatch = req.method === 'POST' && pathname.match(/^\/rooms\/([^/]+)\/close$/);
   if (closeMatch) {
+    if (!isAuthorized(searchParams)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false }));
+      return;
+    }
     let body = '';
-    req.on('data', (chunk) => { body += chunk; });
+    let tooLarge = false;
+    req.on('data', (chunk) => {
+      if (tooLarge) return;
+      body += chunk;
+      // A close request body is a peerId + reconnectToken, tens of bytes —
+      // stop accumulating well before this could matter, rather than
+      // buffering an arbitrarily large POST in memory before the (already
+      // guarded) JSON.parse below ever runs.
+      if (body.length > MAX_CLOSE_BODY_BYTES) {
+        tooLarge = true;
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false }));
+        req.destroy();
+      }
+    });
     req.on('end', () => {
+      if (tooLarge) return;
       let parsed;
       try { parsed = JSON.parse(body); } catch { parsed = null; }
       const room = rooms.get(closeMatch[1]);
@@ -339,8 +410,13 @@ const wss = new WebSocket.Server({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
   const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
 
-  if (TOKEN && searchParams.get('token') !== TOKEN) {
+  if (!isAuthorized(searchParams)) {
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  if (wss.clients.size >= MAX_CONNECTIONS) {
+    socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
     socket.destroy();
     return;
   }
@@ -363,6 +439,13 @@ wss.on('connection', (ws) => {
     } catch {
       return; // Malformed — ignore rather than tear down the connection.
     }
+    // JSON.parse succeeds (no exception) on inputs like the literal text
+    // "null" or "42" — msg.type below would then throw on a null/primitive
+    // and crash this whole process (every room, every connection) since
+    // nothing catches an exception thrown inside a `ws.on('message', ...)`
+    // callback. A single client sending a bare `null` frame reproduced this
+    // before this guard existed.
+    if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
     switch (msg.type) {
       case 'createRoom':
         handleCreateRoom(ws, msg);

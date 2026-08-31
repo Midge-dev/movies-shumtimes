@@ -366,6 +366,9 @@ fun SettingsScreen(
                 pairingServer = null
                 pairingUrl = null
                 editingRelayId = null
+                // Same focus-escape risk as onSubmitted above — this Cancel
+                // button is the thing that's about to leave composition.
+                runCatching { addRelayFocus.requestFocus() }
             },
         )
         return

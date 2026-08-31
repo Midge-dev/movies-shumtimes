@@ -63,7 +63,12 @@ fun ChatOverlay(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         for (message in ordered) {
-            key(message.receivedAtMs, message.username) {
+            // ChatMessage carries no server-issued id (see RelayProtocol.kt) —
+            // adding `text` alongside the original two fields narrows the
+            // window for a same-millisecond double-send from one user to
+            // collide (would now need identical content too, not just
+            // identical timestamp+username) without a wire-protocol change.
+            key(message.receivedAtMs, message.username, message.text) {
                 ChatBubble(message, textAlign = textAlign, onExpired = { visible = visible - message })
             }
         }

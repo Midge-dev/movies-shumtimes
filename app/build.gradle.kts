@@ -1,8 +1,23 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Release signing identity lives in local.properties (gitignored) plus
+// app/release.keystore (also gitignored, unlike the checked-in debug key —
+// see the debug signingConfig's own comment) — neither exists on a fresh
+// checkout or CI runner. Falls back to null/no signingConfig on release in
+// that case, same as before this was set up: assembleRelease still
+// succeeds, it just produces an unsigned APK.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val releaseStoreFile = localProperties.getProperty("RELEASE_STORE_FILE")?.let { file(it) }
+    ?.takeIf { it.exists() }
 
 android {
     namespace = "com.moviesshumtimes.tv"
@@ -33,11 +48,22 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD")
+                keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS")
+                keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseStoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

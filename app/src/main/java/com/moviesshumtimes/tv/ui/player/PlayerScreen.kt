@@ -83,9 +83,11 @@ import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val REPORT_INTERVAL_MS = 5_000L
 private const val CONTROLS_HIDE_DELAY_MS = 3_000L
@@ -315,7 +317,19 @@ private fun PlayerSession(
         val position = player.currentPosition.coerceAtLeast(0)
         sync.stop()
         player.stop()
-        scope.launch { reporter.report(detail.ratingKey, "stopped", position, duration) }
+        // NonCancellable, not a plain launch — onExit() below flips app state
+        // synchronously, which disposes this whole PlayerSession (and cancels
+        // `scope`, since it's this composable's own rememberCoroutineScope) on
+        // the next recomposition. Without this, the network round-trip inside
+        // report() almost never finishes before that cancellation lands, so
+        // the one report that's supposed to be authoritative silently never
+        // sends — Plex's resume point stays whatever the last periodic report
+        // happened to catch, up to REPORT_INTERVAL_MS stale.
+        scope.launch {
+            withContext(NonCancellable) {
+                reporter.report(detail.ratingKey, "stopped", position, duration)
+            }
+        }
         onExit()
     }
 
@@ -664,8 +678,15 @@ private fun SubtitleMenu(
                     modifier = Modifier
                         .focusRequester(focusRequesters[index])
                         .focusProperties {
-                            up = if (index > 0) focusRequesters[index - 1] else FocusRequester.Default
-                            down = if (index < focusRequesters.lastIndex) focusRequesters[index + 1] else FocusRequester.Default
+                            // Cancel, not Default, at every boundary — Default lets
+                            // the search continue past this menu (Left/Right always,
+                            // Up/Down at the list ends) and escape to the nav drawer,
+                            // same bug class as this app's other documented
+                            // focus-escape fixes.
+                            up = if (index > 0) focusRequesters[index - 1] else FocusRequester.Cancel
+                            down = if (index < focusRequesters.lastIndex) focusRequesters[index + 1] else FocusRequester.Cancel
+                            left = FocusRequester.Cancel
+                            right = FocusRequester.Cancel
                         },
                 )
             }
@@ -711,8 +732,10 @@ private fun BitrateMenu(
                 modifier = Modifier
                     .focusRequester(focusRequesters[index])
                     .focusProperties {
-                        up = if (index > 0) focusRequesters[index - 1] else FocusRequester.Default
-                        down = if (index < focusRequesters.lastIndex) focusRequesters[index + 1] else FocusRequester.Default
+                        up = if (index > 0) focusRequesters[index - 1] else FocusRequester.Cancel
+                        down = if (index < focusRequesters.lastIndex) focusRequesters[index + 1] else FocusRequester.Cancel
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
                     },
             )
         }

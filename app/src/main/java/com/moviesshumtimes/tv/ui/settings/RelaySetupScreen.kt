@@ -131,6 +131,12 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                                     pairingServer?.stop()
                                     pairingServer = null
                                     pairingUrl = null
+                                    // The QR panel (and its focused Cancel button) is about
+                                    // to leave composition — without an explicit target the
+                                    // focus search can escape to the nav drawer instead of
+                                    // landing on Save, same bug class as this app's other
+                                    // documented focus-escape fixes.
+                                    runCatching { saveFocus.requestFocus() }
                                 }
                             },
                         )
@@ -179,6 +185,9 @@ fun RelaySetupScreen(onDone: () -> Unit) {
                                     pairingServer?.stop()
                                     pairingServer = null
                                     pairingUrl = null
+                                    // Same escape-to-nav-drawer risk as the onSubmitted path
+                                    // above — this button itself is about to disappear.
+                                    runCatching { pairButtonFocus.requestFocus() }
                                 },
                                 modifier = Modifier
                                     .focusRequester(cancelPairingFocus)
