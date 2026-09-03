@@ -9,7 +9,6 @@ import com.moviesshumtimes.tv.data.plex.PlexServer
 import java.net.URLEncoder
 import java.util.UUID
 
-// streamType 3 = subtitle, matching PlaybackDecision's constant.
 private const val SUBTITLE_STREAM_TYPE = 3
 
 object PlexPlayerFactory {
@@ -30,20 +29,6 @@ object PlexPlayerFactory {
             playWhenReady = true
         }
 
-    // Applies (or re-applies) subtitle selection on an already-running
-    // player without touching its MediaItem — direct play is one continuous
-    // ExoPlayer session, so switching between two demuxed text tracks (or
-    // off) is just a trackSelectionParameters update, no reload needed. Only
-    // a burn-required stream, or leaving one, needs a whole new player/
-    // transcode session — see PlayerScreen's playerIdentity key.
-    //
-    // ExoPlayer doesn't know about Plex stream ids — it only sees whatever
-    // text tracks the container's own extractor demuxes. Steering selection
-    // by language code (rather than trying to map a Plex stream id to a
-    // TrackGroup index) is the only correlation available without deep
-    // format inspection, and is good enough short of two same-language
-    // non-forced tracks in one file, which Plex clients targeting arbitrary
-    // media generally accept as a known limitation too.
     fun applySubtitleSelection(player: ExoPlayer, decision: PlaybackDecision.DirectPlay) {
         val builder = player.trackSelectionParameters.buildUpon()
         val chosen = decision.part.streams
@@ -67,10 +52,6 @@ object PlexPlayerFactory {
                 MediaItem.fromUri(buildTranscodeUrl(server, decision, maxVideoBitrateKbps))
         }
 
-    // Forcing directPlay=0/directStream=0 makes the server transcode both
-    // video and audio into HLS, which is also the only way it will burn
-    // image-based subtitles into the video (Plex always hardcodes subtitles
-    // during transcode — there's no separate "burn" flag to set).
     private fun buildTranscodeUrl(
         server: PlexServer,
         decision: PlaybackDecision.Transcode,
@@ -85,10 +66,6 @@ object PlexPlayerFactory {
             "&directPlay=0&directStream=0" +
             "&videoResolution=1920x1080&maxVideoBitrate=$maxVideoBitrateKbps" +
             "&subtitleSize=100" +
-            // 0 is Plex's convention for "no subtitle" — explicit rather
-            // than omitted, so the server doesn't fall back to its own
-            // stored default and silently reintroduce a track this device
-            // didn't ask for.
             "&subtitleStreamID=${decision.subtitleStreamId ?: 0}" +
             "&session=$session" +
             "&X-Plex-Token=${server.accessToken}"

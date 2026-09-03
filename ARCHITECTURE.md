@@ -740,3 +740,76 @@ portable to a future tvOS target:
   platform from whatever Ktor engine artifact is on that target's classpath
   (OkHttp on Android, Darwin on Apple) — callers never choose one
   explicitly.
+
+## 11. Playback pipeline internals (Android)
+
+`ExoPlayerAdapter` is the only implementation of the shared module's
+`SyncedPlayer` interface today — it wraps a real ExoPlayer so
+`HostPlaybackCoordinator`/`GuestPlaybackReconciler` (both in `shared/`) never
+see an ExoPlayer or Media3 type directly. A future tvOS build supplies an
+AVPlayer-backed implementation of the same interface instead. `Player`
+doesn't key its listeners by anything the caller controls, so the adapter
+keeps its own `SyncedPlayerListener -> Player.Listener` map to make
+`removeListener` possible.
+
+`PlexPlayerFactory.applySubtitleSelection` applies (or re-applies) subtitle
+selection on an already-running player without touching its `MediaItem` —
+direct play is one continuous ExoPlayer session, so switching between two
+demuxed text tracks (or off) is just a `trackSelectionParameters` update, no
+reload needed. Only a burn-required stream, or leaving one, needs a whole
+new player/transcode session (see `PlayerScreen`'s `playerIdentity` key).
+ExoPlayer doesn't know about Plex stream ids — it only sees whatever text
+tracks the container's own extractor demuxes — so steering selection by
+language code (rather than mapping a Plex stream id to a `TrackGroup`
+index) is the only correlation available without deep format inspection.
+Good enough short of two same-language non-forced tracks in one file, a
+known limitation Plex clients targeting arbitrary media generally accept.
+
+`buildTranscodeUrl` forces `directPlay=0&directStream=0`, making the server
+transcode both video and audio into HLS — also the only way it will burn
+image-based subtitles into the video (Plex always hardcodes subtitles during
+transcode; there's no separate "burn" flag). `subtitleStreamID` is always
+sent explicitly (`0` for "no subtitle" when unset) rather than omitted, so
+the server doesn't fall back to its own stored default and silently
+reintroduce a track this device didn't ask for.
+
+`TimelineReporter` reports playback progress to `/:/timeline` so a second
+account watching the same server (e.g. a cousin's) also sees accurate "Now
+Playing"/resume state, matching python-plexapi's `updateTimeline` contract
+(`ratingKey`, `key`, `identifier`, `state`, `time`, `duration`).
+
+## 12. Android platform implementations (settings, pairing, token storage)
+
+`AndroidSettings.kt`'s `Context.observableSettings()` is the one genuinely
+platform-specific piece of the settings layer: only Android needs a
+`Context` to build its underlying key-value store (`SharedPreferences`);
+Apple platforms construct `NSUserDefaultsSettings` with no `Context`
+equivalent needed. It's a lightweight per-call wrapper — `SharedPreferences`
+instances are already memoized per file name by Android, so there's nothing
+here that needs its own memoization, mirroring how DataStore's
+`preferencesDataStore` delegate was used pre-migration. `AndroidTokenStore`
+keeps its own separate DataStore (`plex_token`) for the encrypted blob + IV,
+so `Context.tokenStore` takes the `Context` directly rather than routing
+through `observableSettings()`.
+
+`AndroidTokenStore` hand-rolls what `androidx.security:security-crypto`
+(`EncryptedSharedPreferences`, deprecated in 2025) used to provide: an
+AES-GCM key that never leaves hardware (or a software fallback on older
+devices), via the Android Keystore directly, encrypting the Plex account
+token before it's persisted in DataStore.
+
+`PairingServer` is a tiny, hand-rolled, LAN-only HTTP server — the whole
+surface needed is exactly two routes (serve a form, accept its POST), so a
+real server dependency would be overkill. It lets a phone on the same Wi-Fi
+"paste" a relay's nickname + URL into the TV's Settings screen without
+typing on a remote, the closest local-only analog to Plex's own PIN-link
+flow. Per design spec 09d, it's invoked fresh per relay-add — one
+`PairingServer` instance per attempt, nothing here is a singleton, so
+supporting a second/third relay later needed no lifecycle change, just a
+second form field. Its per-session random path segment (`token`, not just
+`/`) avoids a stray request from something else on the LAN (or a
+port-scanner) landing on the form by accident. `start()` returns the
+URL to show/QR-encode, or `null` if no LAN IPv4 address could be found (the
+TV isn't actually connected to a network). The served page's dark
+background/two-tone NeonPurple styling matches `AppColors.kt` so it reads as
+part of the same app even though it's a plain HTTP page, not Compose.

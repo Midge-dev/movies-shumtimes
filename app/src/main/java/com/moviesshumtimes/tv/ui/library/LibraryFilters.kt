@@ -22,6 +22,11 @@ private fun releaseYear(item: PlexLibraryItem): Int? =
 
 fun decadeOf(item: PlexLibraryItem): Int? = releaseYear(item)?.let { (it / 10) * 10 }
 
+fun isRecentlyAdded(item: PlexLibraryItem, withinDays: Int, nowEpochSeconds: Long = System.currentTimeMillis() / 1000): Boolean {
+    val addedAt = item.addedAt ?: return false
+    return (nowEpochSeconds - addedAt) / SECONDS_PER_DAY <= withinDays
+}
+
 fun matchesDateAddedBucket(item: PlexLibraryItem, bucket: DateAddedBucket, nowEpochSeconds: Long): Boolean {
     val addedAt = item.addedAt ?: return false
     val ageDays = (nowEpochSeconds - addedAt) / SECONDS_PER_DAY

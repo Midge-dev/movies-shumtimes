@@ -131,13 +131,40 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
     suspend fun fetchRecentlyAdded(): List<PlexLibraryItem> =
         get<LibraryItemsResponse>("${server.baseUrl}/library/recentlyAdded").mediaContainer.items
 
+    /**
+     * Plex only surfaces a literal "Suggested"/"Recommended" hub under
+     * `/hubs/promoted` for accounts with Discover/Plex Pass recommendations
+     * enabled. Without that, each library still generates its own
+     * personalized "for you" hubs (Top Unwatched, Start Watching,
+     * Rediscover) under `/hubs/sections/{key}` — this priority list picks
+     * the best available one per library and merges them.
+     */
+    private val suggestionHubPriority = listOf("suggest", "recommend", "topunwatched", "startwatching", "rediscover")
+
+    /** Per-library "Recently Watched" hubs (`movie.recentlyviewed.*`, `tv.recentlyviewed.*`). */
+    private val recentActivityHubPriority = listOf("recentlyviewed", "recentlywatched", "history")
+
     suspend fun fetchSuggestions(): List<PlexOnDeckItem> {
-        val hubs = get<HubsResponse>("${server.baseUrl}/hubs/promoted").mediaContainer.hubs
-        val suggested = hubs.firstOrNull { hub ->
-            val id = hub.hubIdentifier?.lowercase() ?: ""
-            val title = hub.title.lowercase()
-            "suggest" in id || "recommend" in id || "suggest" in title || "recommend" in title
+        val promoted = get<HubsResponse>("${server.baseUrl}/hubs/promoted").mediaContainer.hubs
+        val promotedHub = suggestionHubPriority.firstNotNullOfOrNull { keyword ->
+            promoted.firstOrNull { keyword in (it.hubIdentifier?.lowercase() ?: it.title.lowercase()) && it.items.isNotEmpty() }
         }
-        return suggested?.items ?: emptyList()
+        return promotedHub?.items ?: fetchPerSectionHubItems(suggestionHubPriority)
+    }
+
+    /** Recently finished-watching items, pulled from each library's own "Recently Watched" hub. */
+    suspend fun fetchRecentActivity(): List<PlexOnDeckItem> = fetchPerSectionHubItems(recentActivityHubPriority)
+
+    private suspend fun fetchPerSectionHubItems(keywordPriority: List<String>): List<PlexOnDeckItem> {
+        val sections = get<SectionsResponse>("${server.baseUrl}/library/sections").mediaContainer.directories
+        return sections.flatMap { section ->
+            val sectionHubs = runCatching {
+                get<HubsResponse>("${server.baseUrl}/hubs/sections/${section.key}").mediaContainer.hubs
+            }.getOrElse { emptyList() }
+            val hub = keywordPriority.firstNotNullOfOrNull { keyword ->
+                sectionHubs.firstOrNull { keyword in (it.hubIdentifier?.lowercase() ?: "") && it.items.isNotEmpty() }
+            }
+            hub?.items ?: emptyList()
+        }
     }
 }

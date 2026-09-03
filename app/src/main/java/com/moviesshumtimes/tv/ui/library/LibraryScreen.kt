@@ -36,6 +36,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +47,7 @@ import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
+import com.moviesshumtimes.tv.ui.common.onDpadLongPress
 import com.moviesshumtimes.tv.ui.kit.FocusableSurface
 import com.moviesshumtimes.tv.ui.kit.ShumBorder
 import com.moviesshumtimes.tv.ui.kit.ShumCard
@@ -144,18 +146,19 @@ fun LibraryScreen(
                         }
                         inner()
                     },
+                    onNavigateRight = { runCatching { sortButtonFocus.requestFocus() } },
                     modifier = Modifier
                         .background(AppSurfaceVariant)
                         .padding(12.dp)
                         .width(320.dp)
                         .focusRequester(searchFocus)
-                        .focusProperties { down = sortButtonFocus },
+                        .focusProperties { up = FocusRequester.Cancel },
                 )
                 ShumOutlinedButton(
                     onClick = { sortMenuExpanded = true },
                     modifier = Modifier
                         .focusRequester(sortButtonFocus)
-                        .focusProperties { up = searchFocus; down = filterButtonFocus },
+                        .focusProperties { left = searchFocus; right = filterButtonFocus },
                 ) {
                     Text("Sort: ${sortMode.label}")
                     Text(" ▾", modifier = Modifier.padding(start = 8.dp))
@@ -165,11 +168,16 @@ fun LibraryScreen(
                     onClick = { filtersExpanded = true },
                     modifier = Modifier
                         .focusRequester(filterButtonFocus)
-                        .focusProperties { up = searchFocus },
+                        .focusProperties { left = sortButtonFocus },
                 )
             }
 
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .onDpadLongPress(Key.DirectionUp) { runCatching { searchFocus.requestFocus() } },
+            ) {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(GRID_COLUMNS),
                     contentPadding = PaddingValues(32.dp),

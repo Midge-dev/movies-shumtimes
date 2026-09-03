@@ -26,7 +26,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.moviesshumtimes.tv.data.plex.PlexHub
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
@@ -35,8 +34,6 @@ import com.moviesshumtimes.tv.data.plex.PlexMovieDetail
 import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
 import com.moviesshumtimes.tv.data.plex.PlexPerson
 import com.moviesshumtimes.tv.data.plex.PlexServer
-import com.moviesshumtimes.tv.data.settings.appSettingsStore
-import com.moviesshumtimes.tv.data.settings.defaultRelay
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
 import com.moviesshumtimes.tv.ui.kit.ShumButton
@@ -178,13 +175,6 @@ private fun MovieHero(
     onSeasons: () -> Unit,
     onActionButtonFocused: () -> Unit,
 ) {
-    val context = LocalContext.current
-    var defaultRelayNickname by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        defaultRelayNickname = context.appSettingsStore.observe().first().defaultRelay?.nickname
-    }
-    var watchTogetherFocused by remember { mutableStateOf(false) }
-
     Box(modifier = Modifier.fillMaxWidth().height(HERO_HEIGHT_DP.dp)) {
         ShumArtwork(
             model = PlexImageUrl.of(server, movie.art ?: movie.thumb),
@@ -220,10 +210,7 @@ private fun MovieHero(
                 }
                 ShumOutlinedButton(
                     onClick = onWatchTogether,
-                    modifier = Modifier.onFocusChanged {
-                        watchTogetherFocused = it.isFocused
-                        if (it.isFocused) onActionButtonFocused()
-                    },
+                    modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
                 ) {
                     WatchTogetherIcon()
                     Text("Watch Together", modifier = Modifier.padding(start = 12.dp))
@@ -236,13 +223,6 @@ private fun MovieHero(
                         Text("Seasons")
                     }
                 }
-            }
-            if (watchTogetherFocused && defaultRelayNickname != null) {
-                Text(
-                    text = "Hosting on $defaultRelayNickname",
-                    color = AppWhite.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 10.dp),
-                )
             }
         }
     }

@@ -163,19 +163,21 @@ fun RatingsReviewsSection(
 
 @Composable
 private fun RatingTile(percent: Int, label: String, image: String?) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier
-            .background(AppWhite.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 22.dp, vertical = 16.dp),
-    ) {
-        Box(
-            modifier = Modifier.size(40.dp).background(ratingBadgeColor(image), RoundedCornerShape(6.dp)),
-        )
-        Column {
-            Text(text = "$percent%", style = ShumTypography.headlineMedium)
-            Text(text = label, color = AppOnSurfaceVariant)
+    ShumCard(onClick = {}) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .background(AppWhite.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 22.dp, vertical = 16.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(40.dp).background(ratingBadgeColor(image), RoundedCornerShape(6.dp)),
+            )
+            Column {
+                Text(text = "$percent%", style = ShumTypography.headlineMedium)
+                Text(text = label, color = AppOnSurfaceVariant)
+            }
         }
     }
 }
@@ -191,22 +193,23 @@ private fun ratingBadgeColor(image: String?): Color {
 
 @Composable
 private fun ReviewCard(review: PlexReview) {
-    Column(
-        modifier = Modifier
-            .width(280.dp)
-            .background(AppWhite.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
-            .padding(18.dp),
-    ) {
-        val source = review.source
-        if (source != null) {
-            Text(text = source.uppercase(), color = NeonPurpleGlow)
+    ShumCard(onClick = {}, modifier = Modifier.width(280.dp)) {
+        Column(
+            modifier = Modifier
+                .background(AppWhite.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
+                .padding(18.dp),
+        ) {
+            val source = review.source
+            if (source != null) {
+                Text(text = source.uppercase(), color = NeonPurpleGlow)
+            }
+            Text(
+                text = review.text,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 10.dp),
+            )
         }
-        Text(
-            text = review.text,
-            maxLines = 4,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 10.dp),
-        )
     }
 }
 

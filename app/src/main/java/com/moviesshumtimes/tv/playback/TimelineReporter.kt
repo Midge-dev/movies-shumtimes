@@ -7,9 +7,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-// Reports playback progress to /:/timeline so the cousin's account also
-// sees accurate "Now Playing" / resume state, per python-plexapi's
-// updateTimeline (ratingKey, key, identifier, state, time, duration).
 class TimelineReporter(private val server: PlexServer, private val clientIdentifier: String) {
     private val client = OkHttpClient()
 

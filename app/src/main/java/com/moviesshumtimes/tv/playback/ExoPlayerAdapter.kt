@@ -6,10 +6,6 @@ import com.moviesshumtimes.tv.sync.SyncPlaybackState
 import com.moviesshumtimes.tv.sync.SyncedPlayer
 import com.moviesshumtimes.tv.sync.SyncedPlayerListener
 
-// The only implementation of SyncedPlayer today — wraps a real ExoPlayer so
-// HostPlaybackCoordinator/GuestPlaybackReconciler (shared module) never see
-// an ExoPlayer or Media3 type directly. A future tvOS build supplies an
-// AVPlayer-backed implementation of the same interface instead.
 class ExoPlayerAdapter(private val player: ExoPlayer) : SyncedPlayer {
     override val isPlaying: Boolean get() = player.isPlaying
     override val currentPosition: Long get() = player.currentPosition
@@ -20,9 +16,6 @@ class ExoPlayerAdapter(private val player: ExoPlayer) : SyncedPlayer {
     override fun pause() = player.pause()
     override fun seekTo(positionMs: Long) = player.seekTo(positionMs)
 
-    // Player doesn't key listeners by anything the caller controls, so this
-    // maps each SyncedPlayerListener to the Player.Listener adapting it,
-    // to make removeListener possible.
     private val exoListeners = mutableMapOf<SyncedPlayerListener, Player.Listener>()
 
     override fun addListener(listener: SyncedPlayerListener) {

@@ -33,6 +33,7 @@ fun ClickToTypeTextField(
     textStyle: TextStyle = TextStyle.Default,
     singleLine: Boolean = false,
     decorationBox: @Composable (@Composable () -> Unit) -> Unit = { innerTextField -> innerTextField() },
+    onNavigateRight: (() -> Unit)? = null,
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     var editingEnabled by remember { mutableStateOf(false) }
@@ -67,14 +68,23 @@ fun ClickToTypeTextField(
                 }
             }
             .onPreviewKeyEvent { event ->
-                if (!editingEnabled && event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
-                ) {
-                    editingEnabled = true
-                    keyboardController?.show()
-                    true
-                } else {
-                    false
+                if (event.type != KeyEventType.KeyDown || editingEnabled) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionCenter, Key.Enter -> {
+                        editingEnabled = true
+                        keyboardController?.show()
+                        true
+                    }
+                    // BasicTextField consumes DirectionRight itself for cursor movement before
+                    // Compose's focus-search ever runs, so focusProperties{ right = ... } on this
+                    // field never fires — this callback is the only way out while not editing.
+                    Key.DirectionRight -> if (onNavigateRight != null) {
+                        onNavigateRight()
+                        true
+                    } else {
+                        false
+                    }
+                    else -> false
                 }
             },
     )

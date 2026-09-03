@@ -97,6 +97,7 @@ fun HomeScreen(
     server: PlexServer,
     onDeck: List<PlexOnDeckItem>,
     recentlyAdded: List<PlexLibraryItem>,
+    recentActivity: List<PlexOnDeckItem>,
     suggestions: List<PlexOnDeckItem>,
     liveRooms: List<MergedRoom>,
     myRoomId: String?,
@@ -106,16 +107,20 @@ fun HomeScreen(
     onResume: (PlexOnDeckItem) -> Unit,
     onRemove: (PlexOnDeckItem) -> Unit,
     onSelectRecentlyAdded: (PlexLibraryItem) -> Unit,
+    onSelectRecentActivity: (PlexOnDeckItem) -> Unit,
     onSelectSuggestion: (PlexOnDeckItem) -> Unit,
 ) {
     val firstItemFocus = remember { FocusRequester() }
     val watchTogetherGetsFocus = liveRooms.isNotEmpty()
     val continueWatchingGetsFocus = !watchTogetherGetsFocus && onDeck.isNotEmpty()
-    val recentlyAddedGetsFocus = !watchTogetherGetsFocus && !continueWatchingGetsFocus && recentlyAdded.isNotEmpty()
-    val suggestionsGetsFocus =
-        !watchTogetherGetsFocus && !continueWatchingGetsFocus && !recentlyAddedGetsFocus && suggestions.isNotEmpty()
+    val recentActivityGetsFocus =
+        !watchTogetherGetsFocus && !continueWatchingGetsFocus && recentActivity.isNotEmpty()
+    val recentlyAddedGetsFocus =
+        !watchTogetherGetsFocus && !continueWatchingGetsFocus && !recentActivityGetsFocus && recentlyAdded.isNotEmpty()
+    val suggestionsGetsFocus = !watchTogetherGetsFocus && !continueWatchingGetsFocus &&
+        !recentActivityGetsFocus && !recentlyAddedGetsFocus && suggestions.isNotEmpty()
     val homeListState = rememberLazyListState()
-    LaunchedEffect(watchTogetherGetsFocus, onDeck, recentlyAdded, suggestions) {
+    LaunchedEffect(watchTogetherGetsFocus, onDeck, recentActivity, recentlyAdded, suggestions) {
         if (watchTogetherGetsFocus) {
             runCatching { homeListState.animateScrollToItem(0) }
         }
@@ -174,6 +179,18 @@ fun HomeScreen(
                         )
                     }
                 }
+            }
+        }
+
+        item {
+            HomeRow(title = "Recently Finished Watching", items = recentActivity, key = { it.ratingKey }) { item, index ->
+                SuggestionPoster(
+                    server = server,
+                    item = item,
+                    onClick = { onSelectRecentActivity(item) },
+                    modifier = if (index == 0 && recentActivityGetsFocus) Modifier.focusRequester(firstItemFocus) else Modifier,
+                    staggerDelayMs = (index % ROW_STAGGER_PERIOD) * 120,
+                )
             }
         }
 

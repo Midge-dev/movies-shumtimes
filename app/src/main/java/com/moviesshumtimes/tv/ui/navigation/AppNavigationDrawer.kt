@@ -36,9 +36,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +49,7 @@ import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexAccount
 import com.moviesshumtimes.tv.data.plex.PlexSection
+import com.moviesshumtimes.tv.ui.common.onDpadLongPress
 import com.moviesshumtimes.tv.ui.kit.FocusableSurface
 import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumColors
@@ -83,9 +87,15 @@ fun AppNavigationDrawer(
         animationSpec = tween(durationMillis = RAIL_ANIM_DURATION_MS),
         label = "railWidth",
     )
+    val homeItemFocus = remember { FocusRequester() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize().padding(start = COLLAPSED_RAIL_WIDTH)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = COLLAPSED_RAIL_WIDTH)
+                .onDpadLongPress(Key.DirectionLeft) { runCatching { homeItemFocus.requestFocus() } },
+        ) {
             content()
         }
         Column(
@@ -107,6 +117,7 @@ fun AppNavigationDrawer(
                 selected = isHomeSelected,
                 expanded = expanded,
                 onClick = onOpenHome,
+                modifier = Modifier.focusRequester(homeItemFocus),
             )
             for (section in sections) {
                 SidebarItem(
@@ -144,13 +155,14 @@ private fun SidebarItem(
     selected: Boolean,
     expanded: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val itemFocused by interactionSource.collectIsFocusedAsState()
 
     FocusableSurface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(RailItemHeight),
+        modifier = modifier.fillMaxWidth().height(RailItemHeight),
         selected = selected,
         shape = RailItemShape,
         colors = railItemColors,

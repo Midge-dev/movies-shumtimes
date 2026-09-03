@@ -10,29 +10,15 @@ import java.net.Socket
 import java.net.URLDecoder
 import kotlin.concurrent.thread
 
-// A tiny, hand-rolled, LAN-only HTTP server — the whole surface needed is
-// exactly two routes (serve a form, accept its POST), so a real server
-// dependency would be overkill. Lets a phone on the same Wi-Fi "paste" a
-// relay's nickname + URL into this TV's Settings screen without typing on a
-// remote — the closest local-only analog to Plex's own PIN-link flow.
-// Design spec 09d: this is invoked fresh per relay-add (one PairingServer
-// instance per attempt, same as it always was for the single relay-URL
-// case) — nothing here is a singleton, so "add a second/third relay later"
-// needed no lifecycle change, just a second form field.
 class PairingServer(
     private val prefillNickname: String = "",
     private val prefillUrl: String = "",
     private val onSubmitted: (nickname: String, url: String) -> Unit,
 ) {
-    // A per-session random path segment, not just "/" — avoids a stray
-    // request from something else on the LAN (or a port-scanner) landing on
-    // the form by accident.
     private val token: String = (1..6).map { ('0'..'9').random() }.joinToString("")
     private var serverSocket: ServerSocket? = null
     @Volatile private var running = false
 
-    // Returns the URL to show/QR-encode, or null if no LAN IPv4 address
-    // could be found (e.g. TV isn't actually connected to a network).
     fun start(): String? {
         val ip = localIpv4Address() ?: return null
         val socket = ServerSocket(0)
@@ -158,9 +144,6 @@ class PairingServer(
             ?.hostAddress
 }
 
-// Dark background, two-tone NeonPurple accents — matches AppColors.kt so
-// the pairing page reads as part of the same app even though it's served
-// from a plain HTTP page, not Compose.
 private const val PAIRING_PAGE_CSS = """
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }

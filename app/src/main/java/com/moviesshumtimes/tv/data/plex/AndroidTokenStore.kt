@@ -16,11 +16,6 @@ import kotlinx.coroutines.flow.first
 
 private val Context.tokenDataStore by preferencesDataStore(name = "plex_token")
 
-// androidx.security:security-crypto (EncryptedSharedPreferences) was
-// deprecated in 2025 in favor of using the Android Keystore directly, so
-// this hand-rolls the same idea: an AES-GCM key that never leaves hardware
-// (or a software fallback on older devices), encrypting the Plex account
-// token before it's persisted in DataStore.
 class AndroidTokenStore(private val context: Context) : SecureTokenStore {
     private companion object {
         const val KEY_ALIAS = "shumtimes_token_key"

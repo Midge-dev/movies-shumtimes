@@ -58,6 +58,7 @@ import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.library.EpisodeDetailScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
+import com.moviesshumtimes.tv.ui.library.isRecentlyAdded
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
 import com.moviesshumtimes.tv.ui.library.PersonFilmographyScreen
 import com.moviesshumtimes.tv.ui.library.ShowEpisodesScreen
@@ -126,6 +127,7 @@ private sealed interface AppState {
         val sections: List<PlexSection>,
         val onDeck: List<PlexOnDeckItem>,
         val recentlyAdded: List<PlexLibraryItem>,
+        val recentActivity: List<PlexOnDeckItem>,
         val suggestions: List<PlexOnDeckItem>,
     ) : AppState
     data class Library(val ctx: LibraryContext) : AppState
@@ -340,8 +342,10 @@ private fun AppRoot() {
         val api = PlexServerApi(server, clientIdentifier)
         val onDeck = runCatching { api.fetchOnDeck() }.getOrElse { emptyList() }
         val recentlyAdded = runCatching { api.fetchRecentlyAdded() }.getOrElse { emptyList() }
+            .filter { isRecentlyAdded(it, withinDays = 10) }
+        val recentActivity = runCatching { api.fetchRecentActivity() }.getOrElse { emptyList() }
         val suggestions = runCatching { api.fetchSuggestions() }.getOrElse { emptyList() }
-        return AppState.Home(server, sections, onDeck, recentlyAdded, suggestions)
+        return AppState.Home(server, sections, onDeck, recentlyAdded, recentActivity, suggestions)
     }
 
     suspend fun refreshReturnState(target: AppState): AppState = when (target) {
@@ -446,6 +450,7 @@ private fun AppRoot() {
                 server = current.server,
                 onDeck = current.onDeck,
                 recentlyAdded = current.recentlyAdded,
+                recentActivity = current.recentActivity,
                 suggestions = current.suggestions,
                 liveRooms = liveRooms,
                 myRoomId = relayClient?.roomId?.collectAsState()?.value,
@@ -515,6 +520,22 @@ private fun AppRoot() {
                     state = AppState.MovieDetail(ctx, target, returnState = current)
                 },
                 onSelectSuggestion = { item ->
+                    val ctx = LibraryContext(
+                        current.server,
+                        current.sections,
+                        current.sections.firstOrNull { it.type == item.type } ?: current.sections.first(),
+                        emptyList(),
+                    )
+                    val movie = PlexLibraryItem(
+                        ratingKey = item.ratingKey,
+                        type = item.type,
+                        title = item.title,
+                        thumb = item.thumb,
+                        art = item.art,
+                    )
+                    state = AppState.MovieDetail(ctx, movie, returnState = current)
+                },
+                onSelectRecentActivity = { item ->
                     val ctx = LibraryContext(
                         current.server,
                         current.sections,
