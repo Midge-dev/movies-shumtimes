@@ -70,6 +70,7 @@ import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.sync.RelayRoomSummary
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
+import com.moviesshumtimes.tv.ui.common.suppressAncestorBringIntoView
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumCard
 import com.moviesshumtimes.tv.ui.kit.ShumCardContainer
@@ -162,7 +163,7 @@ fun HomeScreen(
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 32.dp),
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().suppressAncestorBringIntoView(),
                 ) {
                     itemsIndexed(onDeck, key = { _, item -> item.ratingKey }) { index, item ->
                         ContinueWatchingPoster(
@@ -236,7 +237,7 @@ private fun <T> HomeRow(
     LazyRow(
         contentPadding = PaddingValues(horizontal = 32.dp),
         horizontalArrangement = Arrangement.spacedBy(24.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().suppressAncestorBringIntoView(),
     ) {
         itemsIndexed(items, key = { _, item -> key(item) }) { index, item -> itemContent(item, index) }
     }
@@ -278,7 +279,7 @@ private fun WatchTogetherRow(
             state = listState,
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
-            modifier = Modifier.padding(bottom = 16.dp),
+            modifier = Modifier.padding(bottom = 16.dp).suppressAncestorBringIntoView(),
         ) {
             itemsIndexed(rooms, key = { _, merged -> "${merged.relay.id}:${merged.room.roomId}" }) { index, merged ->
                 RoomCard(

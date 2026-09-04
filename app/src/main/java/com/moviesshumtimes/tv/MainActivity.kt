@@ -58,7 +58,6 @@ import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.library.EpisodeDetailScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
-import com.moviesshumtimes.tv.ui.library.isRecentlyAdded
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
 import com.moviesshumtimes.tv.ui.library.PersonFilmographyScreen
 import com.moviesshumtimes.tv.ui.library.ShowEpisodesScreen
@@ -342,7 +341,7 @@ private fun AppRoot() {
         val api = PlexServerApi(server, clientIdentifier)
         val onDeck = runCatching { api.fetchOnDeck() }.getOrElse { emptyList() }
         val recentlyAdded = runCatching { api.fetchRecentlyAdded() }.getOrElse { emptyList() }
-            .filter { isRecentlyAdded(it, withinDays = 10) }
+            .take(15)
         val recentActivity = runCatching { api.fetchRecentActivity() }.getOrElse { emptyList() }
         val suggestions = runCatching { api.fetchSuggestions() }.getOrElse { emptyList() }
         return AppState.Home(server, sections, onDeck, recentlyAdded, recentActivity, suggestions)

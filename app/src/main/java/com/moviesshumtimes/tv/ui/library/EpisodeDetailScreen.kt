@@ -12,18 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -31,8 +26,6 @@ import androidx.compose.ui.unit.sp
 import com.moviesshumtimes.tv.data.plex.PlexEpisode
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexServer
-import com.moviesshumtimes.tv.data.settings.appSettingsStore
-import com.moviesshumtimes.tv.data.settings.defaultRelay
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
 import com.moviesshumtimes.tv.ui.kit.ShumButton
@@ -42,7 +35,6 @@ import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
-import kotlinx.coroutines.flow.first
 
 private const val HERO_HEIGHT_DP = 420
 
@@ -62,13 +54,6 @@ fun EpisodeDetailScreen(
     LaunchedEffect(episode.ratingKey) {
         runCatching { primaryFocus.requestFocus() }
     }
-
-    val context = LocalContext.current
-    var defaultRelayNickname by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        defaultRelayNickname = context.appSettingsStore.observe().first().defaultRelay?.nickname
-    }
-    var watchTogetherFocused by remember { mutableStateOf(false) }
 
     val hasResume = (episode.viewOffset ?: 0L) > 0L
     val kicker = buildString {
@@ -127,20 +112,10 @@ fun EpisodeDetailScreen(
                         Text("Play from start")
                     }
                 }
-                ShumOutlinedButton(
-                    onClick = onWatchTogether,
-                    modifier = Modifier.onFocusChanged { watchTogetherFocused = it.isFocused },
-                ) {
+                ShumOutlinedButton(onClick = onWatchTogether) {
                     WatchTogetherIcon()
                     Text("Watch Together", modifier = Modifier.padding(start = 12.dp))
                 }
-            }
-            if (watchTogetherFocused && defaultRelayNickname != null) {
-                Text(
-                    text = "Hosting on $defaultRelayNickname",
-                    color = AppWhite.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 10.dp),
-                )
             }
         }
     }
