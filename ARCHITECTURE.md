@@ -351,6 +351,23 @@ seated, and failure is quiet (the card stays, its dot greys, the button
 reads "Can't reach relay" for four seconds, then reverts) rather than
 blocking on a retry queue.
 
+`RoomCard`'s outer container is a `Box`, not a `Column`, and its artwork
+region is drawn 2dp taller than its nominal 104dp. This is a fix for a
+GPU-scaling seam: the card's whole subtree sits under one `graphicsLayer`
+scale (the focus-magnify animation), and at a non-1.0 scale factor the
+boundary between the artwork and the info panel below it landed on a
+fractional pixel row, producing a faint but real horizontal band a few
+pixels tall and visibly brighter than either neighboring region (confirmed
+via pixel sampling on-device, not just eyeballing). Matching the scrim's end
+color to the panel's background did not fix it — the seam persisted
+regardless of color, confirming it's a rendering-boundary artifact, not a
+color mismatch. The fix instead relies on deliberate overlap: the info
+panel's `Column` is positioned with `padding(top = 104.dp)` and paints its
+own opaque `AppSurface` background starting at that line, so it draws over
+(in z-order, since it's the second `Box` child) whatever the artwork's
+extra 2dp rendered at the boundary, regardless of the exact GPU mechanism
+causing the bleed.
+
 ### Library
 
 Sort and Filter are independent `BackHandler`-gated menus (only one open at

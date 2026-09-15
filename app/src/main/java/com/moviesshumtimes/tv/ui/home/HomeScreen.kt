@@ -344,7 +344,7 @@ private fun RoomCard(
     )
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
 
-    Column(
+    Box(
         modifier = modifier
             .width(300.dp)
             .zIndex(if (cardFocused) 1f else 0f)
@@ -360,7 +360,7 @@ private fun RoomCard(
                 if (state.hasFocus) scope.launch { runCatching { bringIntoViewRequester.bringIntoView() } }
             },
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(104.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().height(106.dp)) {
             ShumArtwork(
                 model = PlexImageUrl.of(server, room.thumb),
                 contentDescription = room.title,
@@ -390,7 +390,14 @@ private fun RoomCard(
                 }
             }
         }
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 104.dp)
+                .background(AppSurface)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     modifier = Modifier.size(34.dp).clip(CircleShape).background(NeonPurple.copy(alpha = 0.35f)),

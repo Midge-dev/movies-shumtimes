@@ -1,6 +1,8 @@
 package com.moviesshumtimes.tv.ui.library
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,7 +30,9 @@ import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
+import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumButton
+import com.moviesshumtimes.tv.ui.kit.ShumIconButton
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
@@ -47,6 +51,7 @@ fun EpisodeDetailScreen(
     onPlay: () -> Unit,
     onPlayFromStart: () -> Unit,
     onWatchTogether: () -> Unit,
+    onRestartTogether: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
 
@@ -114,7 +119,12 @@ fun EpisodeDetailScreen(
                 }
                 ShumOutlinedButton(onClick = onWatchTogether) {
                     WatchTogetherIcon()
-                    Text("Watch Together", modifier = Modifier.padding(start = 12.dp))
+                    Text(if (hasResume) "Continue Together" else "Watch Together", modifier = Modifier.padding(start = 12.dp))
+                }
+                if (hasResume) {
+                    ShumIconButton(onClick = onRestartTogether) {
+                        Icon(Icons.Filled.Replay, contentDescription = "Restart together from the beginning", tint = AppWhite)
+                    }
                 }
             }
         }

@@ -21,7 +21,8 @@ class HostPlaybackCoordinator(
         const val HEARTBEAT_IDLE_MS = 5_000L
         const val START_DELAY_MS = 750L
         const val IMPLICIT_JUMP_THRESHOLD_MS = 1_500L
-        const val SUPPRESSION_WINDOW_MS = 400L
+        const val SEEK_SUPPRESSION_WINDOW_MS = 400L
+        const val EXPECTATION_TIMEOUT_MS = 3_000L
     }
 
     private var seq = 0
@@ -31,7 +32,9 @@ class HostPlaybackCoordinator(
     private var localBuffering = false
     private var localStalled = false
     private var firstStartCompleted = false
-    private var suppressUntilMs = 0L
+    private var suppressSeekUntilMs = 0L
+    private var expectedPlayWhenReady: Boolean? = null
+    private var expectedPlayWhenReadySetAtMs = 0L
     private var disposed = false
 
     private val knownPeers = mutableSetOf<String>()
@@ -48,15 +51,43 @@ class HostPlaybackCoordinator(
     private var lastBroadcast: PlaybackState? = null
     private var pendingActor: String? = null
 
-    private fun isSuppressed() = nowMs() < suppressUntilMs
-    private inline fun suppressed(block: () -> Unit) {
-        suppressUntilMs = nowMs() + SUPPRESSION_WINDOW_MS
+    private fun isSeekSuppressed() = nowMs() < suppressSeekUntilMs
+    private inline fun suppressedSeek(block: () -> Unit) {
+        suppressSeekUntilMs = nowMs() + SEEK_SUPPRESSION_WINDOW_MS
         block()
+    }
+
+    private fun expectPlayWhenReady(target: Boolean) {
+        expectedPlayWhenReady = target
+        expectedPlayWhenReadySetAtMs = nowMs()
+    }
+
+    private fun consumeExpectedPlayWhenReady(playWhenReady: Boolean): Boolean {
+        if (expectedPlayWhenReady == playWhenReady && nowMs() - expectedPlayWhenReadySetAtMs <= EXPECTATION_TIMEOUT_MS) {
+            expectedPlayWhenReady = null
+            return true
+        }
+        return false
+    }
+
+    private fun setPaused() {
+        if (player.isPlaying) {
+            expectPlayWhenReady(false)
+            player.pause()
+        }
+    }
+
+    private fun setPlaying() {
+        if (!player.isPlaying) {
+            expectPlayWhenReady(true)
+            player.play()
+        }
     }
 
     private val listener = object : SyncedPlayerListener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, isUserRequest: Boolean) {
-            if (!isUserRequest || isSuppressed()) return
+            if (consumeExpectedPlayWhenReady(playWhenReady)) return
+            if (!isUserRequest) return
             if (playWhenReady) requestPlay(myPeerId) else requestPause(myPeerId)
         }
 
@@ -74,7 +105,7 @@ class HostPlaybackCoordinator(
         }
 
         override fun onSeek(positionMs: Long) {
-            if (isSuppressed()) return
+            if (isSeekSuppressed()) return
             afterHostSeek(positionMs, myPeerId)
         }
     }
@@ -153,7 +184,7 @@ class HostPlaybackCoordinator(
 
     private fun onLocalLoaded() {
         if (phase == PlaybackPhase.LOADING) {
-            if (player.isPlaying) suppressed { player.pause() }
+            setPaused()
             setPhase(PlaybackPhase.WAITING_FOR_PEERS)
             broadcast()
             armSafetyIfGated()
@@ -181,14 +212,14 @@ class HostPlaybackCoordinator(
         intendedPlaying = true
         pendingActor = actor
         if (!localReady) {
-            if (player.isPlaying) suppressed { player.pause() }
+            setPaused()
             return
         }
         val gating = gatingPeers()
         if (gating.isEmpty()) {
             scheduleStart(actor)
         } else {
-            if (player.isPlaying) suppressed { player.pause() }
+            setPaused()
             if (phase != PlaybackPhase.WAITING_FOR_PEERS) {
                 setPhase(PlaybackPhase.WAITING_FOR_PEERS)
                 broadcast(actor = actor)
@@ -202,7 +233,7 @@ class HostPlaybackCoordinator(
         pendingActor = null
         cancelPendingStart()
         cancelSafety()
-        if (player.isPlaying) suppressed { player.pause() }
+        setPaused()
         if (phase == PlaybackPhase.LOADING) return
         setPhase(PlaybackPhase.PAUSED)
         broadcast(hint = PlaybackActionHint.PAUSE, actor = actor)
@@ -211,7 +242,7 @@ class HostPlaybackCoordinator(
     private fun applyRemoteSeek(targetMs: Long, actor: String) {
         val duration = player.duration
         if (duration <= 0 || targetMs < 0 || targetMs > duration) return
-        suppressed { player.seekTo(targetMs) }
+        suppressedSeek { player.seekTo(targetMs) }
         afterHostSeek(targetMs, actor)
     }
 
@@ -236,7 +267,7 @@ class HostPlaybackCoordinator(
 
     private fun enterWaiting() {
         if (phase == PlaybackPhase.WAITING_FOR_PEERS) return
-        if (player.isPlaying && !localStalled) suppressed { player.pause() }
+        if (!localStalled) setPaused()
         intendedPlaying = true
         setPhase(PlaybackPhase.WAITING_FOR_PEERS)
         broadcast()
@@ -290,10 +321,8 @@ class HostPlaybackCoordinator(
         pendingStartJob = scope.launch {
             if (delayMs > 0) delay(delayMs)
             if (disposed || phase != PlaybackPhase.PLAYING) return@launch
-            suppressed {
-                if (abs(player.currentPosition - startPositionMs) > 250) player.seekTo(startPositionMs)
-                player.play()
-            }
+            if (abs(player.currentPosition - startPositionMs) > 250) suppressedSeek { player.seekTo(startPositionMs) }
+            setPlaying()
         }
     }
 

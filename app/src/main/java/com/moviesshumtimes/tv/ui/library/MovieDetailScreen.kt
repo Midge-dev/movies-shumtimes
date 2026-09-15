@@ -1,6 +1,8 @@
 package com.moviesshumtimes.tv.ui.library
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,7 +38,9 @@ import com.moviesshumtimes.tv.data.plex.PlexPerson
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
+import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumButton
+import com.moviesshumtimes.tv.ui.kit.ShumIconButton
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
@@ -54,6 +58,7 @@ fun MovieDetailScreen(
     onBack: () -> Unit,
     onPlay: (targetRatingKey: String) -> Unit,
     onWatchTogether: (targetRatingKey: String) -> Unit,
+    onRestartTogether: (targetRatingKey: String) -> Unit,
     onSeasons: () -> Unit,
     resolveNextEpisode: suspend () -> PlexOnDeckItem?,
     loadDetail: suspend () -> PlexMovieDetail?,
@@ -74,14 +79,19 @@ fun MovieDetailScreen(
         if (isShow) nextEpisode = resolveNextEpisode()
     }
     val playTarget = if (isShow) nextEpisode?.ratingKey else movie.ratingKey
-    val playLabel = if (isShow) {
-        nextEpisode?.let { "Play S${it.parentIndex}E${it.index}" } ?: "Play"
-    } else {
-        "Play"
-    }
 
     var detail by remember(movie.ratingKey) { mutableStateOf<PlexMovieDetail?>(null) }
     LaunchedEffect(movie.ratingKey) { detail = loadDetail() }
+
+    val hasResume = !isShow && (detail?.viewOffset ?: 0L) > 0L
+    val playLabel = if (isShow) {
+        nextEpisode?.let { "Play S${it.parentIndex}E${it.index}" } ?: "Play"
+    } else if (hasResume) {
+        "Continue"
+    } else {
+        "Play"
+    }
+    val watchTogetherLabel = if (hasResume) "Continue Together" else "Watch Together"
 
     var relatedHubs by remember(movie.ratingKey) { mutableStateOf<List<PlexHub>>(emptyList()) }
     LaunchedEffect(movie.ratingKey) { relatedHubs = loadRelatedHubs() }
@@ -119,10 +129,13 @@ fun MovieDetailScreen(
                 server = server,
                 movie = movie,
                 playLabel = playLabel,
+                watchTogetherLabel = watchTogetherLabel,
+                showRestart = hasResume,
                 playFocus = playFocus,
                 isShow = isShow,
                 onPlay = { playTarget?.let(onPlay) },
                 onWatchTogether = { playTarget?.let(onWatchTogether) },
+                onRestartTogether = { playTarget?.let(onRestartTogether) },
                 onSeasons = onSeasons,
                 onActionButtonFocused = { heroFocusToken++ },
             )
@@ -168,10 +181,13 @@ private fun MovieHero(
     server: PlexServer,
     movie: PlexLibraryItem,
     playLabel: String,
+    watchTogetherLabel: String,
+    showRestart: Boolean,
     playFocus: FocusRequester,
     isShow: Boolean,
     onPlay: () -> Unit,
     onWatchTogether: () -> Unit,
+    onRestartTogether: () -> Unit,
     onSeasons: () -> Unit,
     onActionButtonFocused: () -> Unit,
 ) {
@@ -213,7 +229,15 @@ private fun MovieHero(
                     modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
                 ) {
                     WatchTogetherIcon()
-                    Text("Watch Together", modifier = Modifier.padding(start = 12.dp))
+                    Text(watchTogetherLabel, modifier = Modifier.padding(start = 12.dp))
+                }
+                if (showRestart) {
+                    ShumIconButton(
+                        onClick = onRestartTogether,
+                        modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
+                    ) {
+                        Icon(Icons.Filled.Replay, contentDescription = "Restart together from the beginning", tint = AppWhite)
+                    }
                 }
                 if (isShow) {
                     ShumOutlinedButton(

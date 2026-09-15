@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +54,7 @@ import com.moviesshumtimes.tv.ui.common.RelayStatusLine
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
 import com.moviesshumtimes.tv.ui.common.rememberRelayStatus
+import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
@@ -83,7 +86,7 @@ fun LobbyScreen(
     relayNickname: String,
     relay: RelayClient,
     onHostOnAnother: (() -> Unit)?,
-    onStart: () -> Unit,
+    onStart: (restartFromBeginning: Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     val connectionState by relay.connectionState.collectAsState()
@@ -116,8 +119,8 @@ fun LobbyScreen(
         }
     }
 
-    LaunchedEffect(relay, connectionState) {
-        if (connectionState == ConnectionState.CONNECTED) {
+    LaunchedEffect(relay, connectionState, isHost) {
+        if (!isHost && connectionState == ConnectionState.CONNECTED) {
             while (true) {
                 relay.send(RelayEvent(kind = "presence", fromPeerId = relay.myPeerId, username = localUsername, avatarUrl = localAvatarUrl))
                 delay(PRESENCE_INTERVAL_MS)
@@ -141,7 +144,7 @@ fun LobbyScreen(
                     if (fromPeerId == relay.myPeerId) return@collect
                     roster = roster + (fromPeerId to RosterEntry(event.username ?: "Guest", event.avatarUrl, System.currentTimeMillis()))
                 }
-                "start" -> onStart()
+                "start" -> onStart(false)
                 "chat" -> chatMessages.tryEmit(event.toChatMessage())
             }
         }
@@ -209,10 +212,21 @@ fun LobbyScreen(
                 ShumButton(
                     onClick = {
                         relay.send(RelayEvent(kind = "start", fromPeerId = relay.myPeerId, username = localUsername))
-                        onStart()
+                        onStart(false)
                     },
                 ) {
                     Text("Start")
+                }
+
+                if (isHost && (detail.viewOffset ?: 0L) > 0L) {
+                    ShumButton(
+                        onClick = {
+                            relay.send(RelayEvent(kind = "start", fromPeerId = relay.myPeerId, username = localUsername))
+                            onStart(true)
+                        },
+                    ) {
+                        Icon(Icons.Filled.Replay, contentDescription = "Restart from the beginning", tint = AppWhite)
+                    }
                 }
 
                 ShumButton(onClick = { showChatModal = true }) {

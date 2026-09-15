@@ -233,6 +233,8 @@ const server = http.createServer((req, res) => {
     releaseExpiredReservations();
     const list = [];
     for (const room of rooms.values()) {
+      const hostSeat = room.seats[0];
+      if (!hostSeat || !hostSeat.ws) continue;
       const occupants = room.seats.filter(Boolean).length;
       if (occupants === 0) continue;
       list.push({

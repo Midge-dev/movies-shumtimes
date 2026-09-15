@@ -272,6 +272,75 @@ private fun AppRoot() {
         return ok
     }
 
+    suspend fun findHostedRoomForMedia(ratingKey: String): Pair<RelayEntry, RelayRoomSummary>? {
+        val identity = context.relayIdentityStore.load()
+        val hostedByRelay = identity.hostedRooms.groupBy { it.relayUrl }
+        if (hostedByRelay.isEmpty()) return null
+        val relaysByUrl = context.appSettingsStore.observe().first().relays.associateBy { it.url }
+        for ((relayUrl, hosted) in hostedByRelay) {
+            val hostedIds = hosted.map { it.roomId }.toSet()
+            val rooms = runCatching { relayDirectoryApi.listRooms(relayUrl) }.getOrNull() ?: continue
+            val match = rooms.firstOrNull { it.ratingKey == ratingKey && it.roomId in hostedIds }
+            if (match != null) {
+                val relayEntry = relaysByUrl[relayUrl] ?: RelayEntry(id = relayUrl, nickname = relayUrl, url = relayUrl)
+                return relayEntry to match
+            }
+        }
+        return null
+    }
+
+    suspend fun startWatchTogether(
+        ctx: LibraryContext,
+        returnState: AppState,
+        roomTitle: String,
+        thumb: String?,
+        targetRatingKey: String,
+        restart: Boolean,
+    ) {
+        val hostName = localAccount?.username ?: "Host"
+        val settings = context.appSettingsStore.observe().first()
+        val defaultRelay = settings.defaultRelay
+        if (defaultRelay == null) {
+            state = AppState.Settings(ctx, returnState = returnState, relayHint = "Add a relay to watch with friends.")
+            return
+        }
+        val existing = findHostedRoomForMedia(targetRatingKey)
+        val relay = if (existing != null) {
+            ensureRelayClient(existing.first.url, RoomIntent.Join(existing.second.roomId))
+        } else {
+            ensureRelayClient(
+                defaultRelay.url,
+                RoomIntent.Create(
+                    title = roomTitle,
+                    thumb = thumb,
+                    ratingKey = targetRatingKey,
+                    hostName = hostName,
+                    maxSeats = settings.maxHostSeats,
+                ),
+            )
+        }
+        if (relay == null) {
+            state = AppState.Settings(ctx, returnState = returnState, relayHint = "Add a relay to watch with friends.")
+            return
+        }
+        val fetched = runCatching { PlexServerApi(ctx.server, clientIdentifier).fetchMovieDetail(targetRatingKey) }
+        state = fetched.fold(
+            onSuccess = { detail ->
+                AppState.Lobby(
+                    ctx.server,
+                    if (restart) detail.copy(viewOffset = 0L) else detail,
+                    returnState,
+                    relay,
+                    existing?.second?.hostName ?: hostName,
+                    existing?.first?.nickname ?: defaultRelay.nickname,
+                    thumb = thumb,
+                    isHost = true,
+                )
+            },
+            onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
+        )
+    }
+
     suspend fun hostOnAnotherRelay(current: AppState.Lobby) {
         val settings = context.appSettingsStore.observe().first()
         val next = settings.relays.firstOrNull { it.url != current.relay.relayUrl } ?: return
@@ -486,14 +555,46 @@ private fun AppRoot() {
                     }
                 },
                 onResume = { item ->
-                    scope.launch {
-                        val fetched = runCatching {
-                            PlexServerApi(current.server, clientIdentifier).fetchMovieDetail(item.ratingKey)
-                        }
-                        state = fetched.fold(
-                            onSuccess = { detail -> AppState.Player(current.server, detail, current, relay = null) },
-                            onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
+                    if (item.type == "episode") {
+                        val show = PlexLibraryItem(
+                            ratingKey = item.ratingKey,
+                            type = SECTION_TYPE_SHOW,
+                            title = item.grandparentTitle ?: item.title,
+                            thumb = item.thumb,
+                            art = item.art,
                         )
+                        val episode = PlexEpisode(
+                            ratingKey = item.ratingKey,
+                            title = item.title,
+                            index = item.index,
+                            thumb = item.thumb,
+                            duration = item.duration,
+                            viewOffset = item.viewOffset,
+                            parentIndex = item.parentIndex,
+                            grandparentTitle = item.grandparentTitle,
+                        )
+                        val ctx = LibraryContext(
+                            current.server,
+                            current.sections,
+                            current.sections.firstOrNull { it.type == SECTION_TYPE_SHOW } ?: current.sections.first(),
+                            emptyList(),
+                        )
+                        state = AppState.EpisodeDetail(ctx, show, episode, current)
+                    } else {
+                        val movie = PlexLibraryItem(
+                            ratingKey = item.ratingKey,
+                            type = item.type,
+                            title = item.title,
+                            thumb = item.thumb,
+                            art = item.art,
+                        )
+                        val ctx = LibraryContext(
+                            current.server,
+                            current.sections,
+                            current.sections.firstOrNull { it.type == item.type } ?: current.sections.first(),
+                            emptyList(),
+                        )
+                        state = AppState.MovieDetail(ctx, movie, returnState = current)
                     }
                 },
                 onRemove = { item -> removeFromContinueWatching(current, item) },
@@ -698,53 +799,12 @@ private fun AppRoot() {
                 },
                 onWatchTogether = { targetRatingKey ->
                     scope.launch {
-                        val hostName = localAccount?.username ?: "Host"
-                        val settings = context.appSettingsStore.observe().first()
-                        val defaultRelay = settings.defaultRelay
-                        if (defaultRelay == null) {
-                            state = AppState.Settings(
-                                current.ctx,
-                                returnState = current,
-                                relayHint = "Add a relay to watch with friends.",
-                            )
-                            return@launch
-                        }
-                        val relay = ensureRelayClient(
-                            defaultRelay.url,
-                            RoomIntent.Create(
-                                title = current.movie.title,
-                                thumb = current.movie.thumb,
-                                ratingKey = targetRatingKey,
-                                hostName = hostName,
-                                maxSeats = settings.maxHostSeats,
-                            ),
-                        )
-                        if (relay == null) {
-                            state = AppState.Settings(
-                                current.ctx,
-                                returnState = current,
-                                relayHint = "Add a relay to watch with friends.",
-                            )
-                        } else {
-                            val fetched = runCatching {
-                                PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(targetRatingKey)
-                            }
-                            state = fetched.fold(
-                                onSuccess = { detail ->
-                                    AppState.Lobby(
-                                        current.ctx.server,
-                                        detail,
-                                        current,
-                                        relay,
-                                        hostName,
-                                        defaultRelay.nickname,
-                                        thumb = current.movie.thumb,
-                                        isHost = true,
-                                    )
-                                },
-                                onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
-                            )
-                        }
+                        startWatchTogether(current.ctx, current, current.movie.title, current.movie.thumb, targetRatingKey, restart = false)
+                    }
+                },
+                onRestartTogether = { targetRatingKey ->
+                    scope.launch {
+                        startWatchTogether(current.ctx, current, current.movie.title, current.movie.thumb, targetRatingKey, restart = true)
                     }
                 },
             )
@@ -873,58 +933,22 @@ private fun AppRoot() {
                 },
                 onWatchTogether = {
                     scope.launch {
-                        val hostName = localAccount?.username ?: "Host"
-                        val settings = context.appSettingsStore.observe().first()
-                        val defaultRelay = settings.defaultRelay
-                        if (defaultRelay == null) {
-                            state = AppState.Settings(
-                                current.ctx,
-                                returnState = current,
-                                relayHint = "Add a relay to watch with friends.",
-                            )
-                            return@launch
-                        }
                         val episode = current.episode
                         val roomTitle = buildString {
                             append(current.show.title)
                             episode.parentIndex?.let { season -> episode.index?.let { ep -> append(" · S${season}E$ep") } }
                         }
-                        val relay = ensureRelayClient(
-                            defaultRelay.url,
-                            RoomIntent.Create(
-                                title = roomTitle,
-                                thumb = episode.thumb,
-                                ratingKey = episode.ratingKey,
-                                hostName = hostName,
-                                maxSeats = settings.maxHostSeats,
-                            ),
-                        )
-                        if (relay == null) {
-                            state = AppState.Settings(
-                                current.ctx,
-                                returnState = current,
-                                relayHint = "Add a relay to watch with friends.",
-                            )
-                        } else {
-                            val fetched = runCatching {
-                                PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(episode.ratingKey)
-                            }
-                            state = fetched.fold(
-                                onSuccess = { detail ->
-                                    AppState.Lobby(
-                                        current.ctx.server,
-                                        detail,
-                                        current,
-                                        relay,
-                                        hostName,
-                                        defaultRelay.nickname,
-                                        thumb = episode.thumb,
-                                        isHost = true,
-                                    )
-                                },
-                                onFailure = { AppState.Error(it.message ?: "Couldn't load playback info") },
-                            )
+                        startWatchTogether(current.ctx, current, roomTitle, episode.thumb, episode.ratingKey, restart = false)
+                    }
+                },
+                onRestartTogether = {
+                    scope.launch {
+                        val episode = current.episode
+                        val roomTitle = buildString {
+                            append(current.show.title)
+                            episode.parentIndex?.let { season -> episode.index?.let { ep -> append(" · S${season}E$ep") } }
                         }
+                        startWatchTogether(current.ctx, current, roomTitle, episode.thumb, episode.ratingKey, restart = true)
                     }
                 },
             )
@@ -943,7 +967,10 @@ private fun AppRoot() {
                 } else {
                     null
                 },
-                onStart = { state = AppState.Player(current.server, current.detail, current.returnState, current.relay) },
+                onStart = { restartFromBeginning ->
+                    val detail = if (restartFromBeginning) current.detail.copy(viewOffset = 0L) else current.detail
+                    state = AppState.Player(current.server, detail, current.returnState, current.relay)
+                },
                 onBack = {
                     releaseRelayClient()
                     returnTo(current.returnState)

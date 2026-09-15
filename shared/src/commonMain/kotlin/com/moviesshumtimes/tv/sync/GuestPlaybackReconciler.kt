@@ -21,13 +21,18 @@ class GuestPlaybackReconciler(
         const val PAUSED_SEEK_THRESHOLD_MS = 500L
         const val SETTLE_TIMEOUT_MS = 1_500L
         const val OPTIMISTIC_WINDOW_MS = 2_000L
-        const val SUPPRESSION_WINDOW_MS = 400L
+        const val SEEK_SUPPRESSION_WINDOW_MS = 400L
+        const val EXPECTATION_TIMEOUT_MS = 3_000L
+        const val HOST_STALE_TIMEOUT_MS = 8_000L
     }
 
     private var latestState: PlaybackState? = null
+    private var lastStateAtMs = 0L
     private var lastSeq = -1
     private var localReady = false
-    private var suppressUntilMs = 0L
+    private var suppressSeekUntilMs = 0L
+    private var expectedPlayWhenReady: Boolean? = null
+    private var expectedPlayWhenReadySetAtMs = 0L
     private var settling = false
     private var settleJob: Job? = null
     private var lastHardSeekMs = -HARD_SEEK_COOLDOWN_MS
@@ -39,15 +44,43 @@ class GuestPlaybackReconciler(
     private var lastSentStatus: PeerStatus? = null
     private var disposed = false
 
-    private fun isSuppressed() = nowMs() < suppressUntilMs
-    private inline fun suppressed(block: () -> Unit) {
-        suppressUntilMs = nowMs() + SUPPRESSION_WINDOW_MS
+    private fun isSeekSuppressed() = nowMs() < suppressSeekUntilMs
+    private inline fun suppressedSeek(block: () -> Unit) {
+        suppressSeekUntilMs = nowMs() + SEEK_SUPPRESSION_WINDOW_MS
         block()
+    }
+
+    private fun expectPlayWhenReady(target: Boolean) {
+        expectedPlayWhenReady = target
+        expectedPlayWhenReadySetAtMs = nowMs()
+    }
+
+    private fun consumeExpectedPlayWhenReady(playWhenReady: Boolean): Boolean {
+        if (expectedPlayWhenReady == playWhenReady && nowMs() - expectedPlayWhenReadySetAtMs <= EXPECTATION_TIMEOUT_MS) {
+            expectedPlayWhenReady = null
+            return true
+        }
+        return false
+    }
+
+    private fun setPaused() {
+        if (player.isPlaying) {
+            expectPlayWhenReady(false)
+            player.pause()
+        }
+    }
+
+    private fun setPlaying() {
+        if (!player.isPlaying) {
+            expectPlayWhenReady(true)
+            player.play()
+        }
     }
 
     private val listener = object : SyncedPlayerListener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, isUserRequest: Boolean) {
-            if (!isUserRequest || isSuppressed()) return
+            if (consumeExpectedPlayWhenReady(playWhenReady)) return
+            if (!isUserRequest) return
             if (latestState == null) return
             sendControl(ControlRequest(if (playWhenReady) ControlRequestKind.PLAY else ControlRequestKind.PAUSE))
             markOptimistic()
@@ -64,7 +97,7 @@ class GuestPlaybackReconciler(
         }
 
         override fun onSeek(positionMs: Long) {
-            if (isSuppressed()) return
+            if (isSeekSuppressed()) return
             if (latestState == null) return
             sendControl(ControlRequest(ControlRequestKind.SEEK, positionMs))
             markOptimistic()
@@ -98,6 +131,7 @@ class GuestPlaybackReconciler(
         if (state.seq <= lastSeq) return
         lastSeq = state.seq
         latestState = state
+        lastStateAtMs = nowMs()
 
         if (optimisticUntilSeq != null && (state.actorPeerId == myPeerId || state.actionHint != null)) {
             optimisticUntilSeq = null
@@ -115,10 +149,12 @@ class GuestPlaybackReconciler(
 
     private fun optimisticWindowActive() = optimisticUntilSeq != null && nowMs() < optimisticDeadlineMs
 
+    private fun hostIsStale() = nowMs() - lastStateAtMs > HOST_STALE_TIMEOUT_MS
+
     private fun reconcile() {
         if (disposed || settling) return
         val state = latestState ?: return
-        if (!localReady || optimisticWindowActive()) return
+        if (!localReady || optimisticWindowActive() || hostIsStale()) return
 
         when (state.phase) {
             PlaybackPhase.LOADING, PlaybackPhase.WAITING_FOR_PEERS, PlaybackPhase.PAUSED -> {
@@ -141,7 +177,7 @@ class GuestPlaybackReconciler(
                     delay(delayMs)
                     scheduledStartSeq = null
                     if (latestState?.seq != state.seq) return@launch
-                    suppressed { player.play() }
+                    setPlaying()
                 }
             }
             ensurePaused()
@@ -157,7 +193,7 @@ class GuestPlaybackReconciler(
         var targetMs = state.targetPositionMs(hostNow)
         if (duration > 0 && targetMs > duration) targetMs = duration
 
-        if (!player.isPlaying) suppressed { player.play() }
+        setPlaying()
 
         val drift = player.currentPosition - targetMs
         if (abs(drift) <= DEADBAND_MS) return
@@ -174,7 +210,7 @@ class GuestPlaybackReconciler(
             delay(SETTLE_TIMEOUT_MS)
             settling = false
         }
-        suppressed { player.seekTo(targetMs.coerceAtLeast(0)) }
+        suppressedSeek { player.seekTo(targetMs.coerceAtLeast(0)) }
     }
 
     private fun alignWhileStopped(state: PlaybackState) {
@@ -183,7 +219,7 @@ class GuestPlaybackReconciler(
     }
 
     private fun ensurePaused() {
-        if (player.isPlaying) suppressed { player.pause() }
+        setPaused()
     }
 
     private fun sendStatusNow(force: Boolean = false) {
