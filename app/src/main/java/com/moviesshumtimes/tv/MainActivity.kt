@@ -670,6 +670,11 @@ private fun AppRoot() {
                 onSelectItem = { item ->
                     state = AppState.MovieDetail(current.ctx, item, returnState = AppState.Library(current.ctx))
                 },
+                loadCollections = {
+                    runCatching {
+                        PlexServerApi(current.ctx.server, clientIdentifier).fetchCollections(current.ctx.selectedSection.key)
+                    }.getOrDefault(emptyList())
+                },
             )
         }
         is AppState.LoadingSection -> AppNavigationDrawer(

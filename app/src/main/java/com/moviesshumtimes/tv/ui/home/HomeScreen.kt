@@ -70,6 +70,7 @@ import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.sync.RelayRoomSummary
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
+import com.moviesshumtimes.tv.ui.common.formatTimecode
 import com.moviesshumtimes.tv.ui.common.suppressAncestorBringIntoView
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumCard
@@ -634,6 +635,18 @@ private fun ContinueWatchingPoster(
                         modifier = Modifier.fillMaxSize(),
                         staggerDelayMs = staggerDelayMs,
                     )
+                    if (focused) {
+                        Text(
+                            text = formatTimecode(item.viewOffset ?: 0L),
+                            color = AppWhite,
+                            style = ShumTypography.bodySmall,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(bottom = 8.dp, end = 6.dp)
+                                .background(AppScrim.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)

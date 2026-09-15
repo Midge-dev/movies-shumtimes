@@ -73,6 +73,7 @@ import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.SyncViewModel
 import com.moviesshumtimes.tv.ui.common.AppLoadingIndicator
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
+import com.moviesshumtimes.tv.ui.common.formatTimecode
 import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumIconButton
 import com.moviesshumtimes.tv.ui.kit.ShumListItem
@@ -217,6 +218,8 @@ private fun PlayerSession(
     var pendingPlayPauseFocus by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableStateOf(0) }
     var seekBar by remember { mutableStateOf<DefaultTimeBar?>(null) }
+    var positionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
     val screenFocusRequester = remember { FocusRequester() }
     val playPauseFocusRequester = remember { FocusRequester() }
 
@@ -250,9 +253,13 @@ private fun PlayerSession(
     LaunchedEffect(controlsVisible, player) {
         if (!controlsVisible) return@LaunchedEffect
         while (true) {
-            seekBar?.setDuration(player.duration.coerceAtLeast(0))
-            seekBar?.setPosition(player.currentPosition.coerceAtLeast(0))
+            val duration = player.duration.coerceAtLeast(0)
+            val position = player.currentPosition.coerceAtLeast(0)
+            seekBar?.setDuration(duration)
+            seekBar?.setPosition(position)
             seekBar?.setBufferedPosition(player.bufferedPosition.coerceAtLeast(0))
+            durationMs = duration
+            positionMs = position
             delay(PROGRESS_POLL_INTERVAL_MS)
         }
     }
@@ -420,6 +427,8 @@ private fun PlayerSession(
         if (controlsVisible) {
             PlayerControlsBar(
                 isPlaying = isPlaying,
+                positionMs = positionMs,
+                durationMs = durationMs,
                 subtitlesAvailable = subtitleOptions.isNotEmpty(),
                 playPauseFocusRequester = playPauseFocusRequester,
                 onPlayPause = ::togglePlayPause,
@@ -483,6 +492,8 @@ private fun PlayerSession(
 @Composable
 private fun PlayerControlsBar(
     isPlaying: Boolean,
+    positionMs: Long,
+    durationMs: Long,
     subtitlesAvailable: Boolean,
     playPauseFocusRequester: FocusRequester,
     onPlayPause: () -> Unit,
@@ -516,6 +527,10 @@ private fun PlayerControlsBar(
                     onSeekBar(this)
                 }
             },
+        )
+        Text(
+            text = "${formatTimecode(positionMs)} / ${formatTimecode(durationMs)}",
+            color = AppWhite,
         )
         Row(
             modifier = Modifier.fillMaxWidth(),

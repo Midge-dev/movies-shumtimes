@@ -38,13 +38,16 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.moviesshumtimes.tv.data.plex.PlexCollection
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.common.ClickToTypeTextField
+import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.onDpadLongPress
@@ -53,12 +56,14 @@ import com.moviesshumtimes.tv.ui.kit.ShumBorder
 import com.moviesshumtimes.tv.ui.kit.ShumCard
 import com.moviesshumtimes.tv.ui.kit.ShumCardContainer
 import com.moviesshumtimes.tv.ui.kit.ShumColors
+import com.moviesshumtimes.tv.ui.kit.ShumFilterChip
 import com.moviesshumtimes.tv.ui.kit.ShumGlow
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppDimBorder
 import com.moviesshumtimes.tv.ui.theme.AppOnSurface
+import com.moviesshumtimes.tv.ui.theme.AppOnSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppSurface
 import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
@@ -70,27 +75,48 @@ import com.moviesshumtimes.tv.ui.theme.NeonPurplePressed
 
 private const val GRID_COLUMNS = 5
 
+private enum class BrowseTab(val label: String) {
+    ALL("All"),
+    COLLECTIONS("Collections"),
+    GENRE("Genre"),
+}
+
 @Composable
 fun LibraryScreen(
     server: PlexServer,
     selectedSection: PlexSection,
     items: List<PlexLibraryItem>,
     onSelectItem: (PlexLibraryItem) -> Unit,
+    loadCollections: suspend () -> List<PlexCollection>,
 ) {
     var query by remember(selectedSection.key) { mutableStateOf("") }
     var sortMode by remember(selectedSection.key) { mutableStateOf(SortMode.TITLE) }
     var genreFilter by remember(selectedSection.key) { mutableStateOf<String?>(null) }
     var decadeFilter by remember(selectedSection.key) { mutableStateOf<Int?>(null) }
     var dateAddedFilter by remember(selectedSection.key) { mutableStateOf<DateAddedBucket?>(null) }
+    var collectionFilter by remember(selectedSection.key) { mutableStateOf<String?>(null) }
     var sortMenuExpanded by remember(selectedSection.key) { mutableStateOf(false) }
     var filtersExpanded by remember(selectedSection.key) { mutableStateOf(false) }
+    var browseTab by remember(selectedSection.key) { mutableStateOf(BrowseTab.ALL) }
+    var collections by remember(selectedSection.key) { mutableStateOf<List<PlexCollection>?>(null) }
 
     val availableGenres = remember(items) { items.flatMap { item -> item.genres.map { it.tag } }.distinct().sorted() }
     val availableDecades = remember(items) { items.mapNotNull { decadeOf(it) }.distinct().sortedDescending() }
-    val displayedItems = remember(items, query, sortMode, genreFilter, decadeFilter, dateAddedFilter) {
-        applyLibraryFilters(items, query, sortMode, genreFilter, decadeFilter, dateAddedFilter)
+    val displayedItems = remember(items, query, sortMode, genreFilter, decadeFilter, dateAddedFilter, collectionFilter) {
+        applyLibraryFilters(items, query, sortMode, genreFilter, decadeFilter, dateAddedFilter, collectionFilter)
     }
 
+    LaunchedEffect(browseTab, selectedSection.key) {
+        if (browseTab == BrowseTab.COLLECTIONS && collections == null) {
+            collections = runCatching { loadCollections() }.getOrDefault(emptyList())
+        }
+    }
+
+    val allTabFocus = remember { FocusRequester() }
+    val collectionsTabFocus = remember { FocusRequester() }
+    val genreTabFocus = remember { FocusRequester() }
+    val firstCollectionCardFocus = remember { FocusRequester() }
+    val firstGenreTileFocus = remember { FocusRequester() }
     val searchFocus = remember { FocusRequester() }
     val sortButtonFocus = remember { FocusRequester() }
     val filterButtonFocus = remember { FocusRequester() }
@@ -131,71 +157,173 @@ fun LibraryScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(start = 32.dp, top = 16.dp, end = 32.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                ClickToTypeTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    textStyle = TextStyle(color = AppOnSurface),
-                    singleLine = true,
-                    decorationBox = { inner ->
-                        if (query.isEmpty()) {
-                            Text("Search ${selectedSection.title}…", color = AppWhite)
-                        }
-                        inner()
-                    },
-                    onNavigateRight = { runCatching { sortButtonFocus.requestFocus() } },
-                    modifier = Modifier
-                        .background(AppSurfaceVariant)
-                        .padding(12.dp)
-                        .width(320.dp)
-                        .focusRequester(searchFocus)
-                        .focusProperties { up = FocusRequester.Cancel },
-                )
-                ShumOutlinedButton(
-                    onClick = { sortMenuExpanded = true },
-                    modifier = Modifier
-                        .focusRequester(sortButtonFocus)
-                        .focusProperties { left = searchFocus; right = filterButtonFocus },
-                ) {
-                    Text("Sort: ${sortMode.label}")
-                    Text(" ▾", modifier = Modifier.padding(start = 8.dp))
-                }
-                FilterTrigger(
-                    appliedCount = listOfNotNull(genreFilter, decadeFilter, dateAddedFilter).size,
-                    onClick = { filtersExpanded = true },
-                    modifier = Modifier
-                        .focusRequester(filterButtonFocus)
-                        .focusProperties { left = sortButtonFocus },
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .onDpadLongPress(Key.DirectionUp) { runCatching { searchFocus.requestFocus() } },
-            ) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(GRID_COLUMNS),
-                    contentPadding = PaddingValues(32.dp),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    itemsIndexed(displayedItems, key = { _, item -> item.ratingKey }) { index, item ->
-                        LibraryPoster(
-                            server = server,
-                            item = item,
-                            onClick = { onSelectItem(item) },
-                            staggerDelayMs = (index % GRID_COLUMNS) * 120,
-                        )
+                BrowseTab.entries.forEachIndexed { index, tab ->
+                    val tabFocus = when (tab) {
+                        BrowseTab.ALL -> allTabFocus
+                        BrowseTab.COLLECTIONS -> collectionsTabFocus
+                        BrowseTab.GENRE -> genreTabFocus
+                    }
+                    val downFocus = when (tab) {
+                        BrowseTab.ALL -> searchFocus
+                        BrowseTab.COLLECTIONS -> if (collections.isNullOrEmpty()) FocusRequester.Cancel else firstCollectionCardFocus
+                        BrowseTab.GENRE -> if (availableGenres.isEmpty()) FocusRequester.Cancel else firstGenreTileFocus
+                    }
+                    ShumFilterChip(
+                        selected = browseTab == tab,
+                        onClick = { browseTab = tab },
+                        modifier = Modifier
+                            .focusRequester(tabFocus)
+                            .focusProperties {
+                                up = FocusRequester.Cancel
+                                down = downFocus
+                                if (index > 0) {
+                                    left = when (BrowseTab.entries[index - 1]) {
+                                        BrowseTab.ALL -> allTabFocus
+                                        BrowseTab.COLLECTIONS -> collectionsTabFocus
+                                        BrowseTab.GENRE -> genreTabFocus
+                                    }
+                                }
+                                if (index < BrowseTab.entries.lastIndex) {
+                                    right = when (BrowseTab.entries[index + 1]) {
+                                        BrowseTab.ALL -> allTabFocus
+                                        BrowseTab.COLLECTIONS -> collectionsTabFocus
+                                        BrowseTab.GENRE -> genreTabFocus
+                                    }
+                                }
+                            },
+                    ) {
+                        Text(tab.label)
                     }
                 }
-                if (displayedItems.isEmpty()) {
-                    Text("Nothing matches these filters.", modifier = Modifier.padding(32.dp))
+            }
+
+            if (browseTab == BrowseTab.ALL) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ClickToTypeTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        textStyle = TextStyle(color = AppOnSurface),
+                        singleLine = true,
+                        decorationBox = { inner ->
+                            if (query.isEmpty()) {
+                                Text("Search ${selectedSection.title}…", color = AppWhite)
+                            }
+                            inner()
+                        },
+                        onNavigateRight = { runCatching { sortButtonFocus.requestFocus() } },
+                        modifier = Modifier
+                            .background(AppSurfaceVariant)
+                            .padding(12.dp)
+                            .width(320.dp)
+                            .focusRequester(searchFocus)
+                            .focusProperties { up = allTabFocus },
+                    )
+                    ShumOutlinedButton(
+                        onClick = { sortMenuExpanded = true },
+                        modifier = Modifier
+                            .focusRequester(sortButtonFocus)
+                            .focusProperties { up = allTabFocus; left = searchFocus; right = filterButtonFocus },
+                    ) {
+                        Text("Sort: ${sortMode.label}")
+                        Text(" ▾", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    FilterTrigger(
+                        appliedCount = listOfNotNull(genreFilter, decadeFilter, dateAddedFilter, collectionFilter).size,
+                        onClick = { filtersExpanded = true },
+                        modifier = Modifier
+                            .focusRequester(filterButtonFocus)
+                            .focusProperties { up = allTabFocus; left = sortButtonFocus },
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .onDpadLongPress(Key.DirectionUp) { runCatching { searchFocus.requestFocus() } },
+                ) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(GRID_COLUMNS),
+                        contentPadding = PaddingValues(32.dp),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(24.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        itemsIndexed(displayedItems, key = { _, item -> item.ratingKey }) { index, item ->
+                            LibraryPoster(
+                                server = server,
+                                item = item,
+                                onClick = { onSelectItem(item) },
+                                staggerDelayMs = (index % GRID_COLUMNS) * 120,
+                            )
+                        }
+                    }
+                    if (displayedItems.isEmpty()) {
+                        Text("Nothing matches these filters.", modifier = Modifier.padding(32.dp))
+                    }
+                }
+            } else if (browseTab == BrowseTab.COLLECTIONS) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    val loadedCollections = collections
+                    when {
+                        loadedCollections == null -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            LoadingScreen("Loading collections…")
+                        }
+                        loadedCollections.isEmpty() -> Text("No collections found", modifier = Modifier.padding(32.dp))
+                        else -> LazyVerticalGrid(
+                            columns = GridCells.Fixed(GRID_COLUMNS),
+                            contentPadding = PaddingValues(32.dp),
+                            horizontalArrangement = Arrangement.spacedBy(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(24.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            itemsIndexed(loadedCollections, key = { _, collection -> collection.ratingKey }) { index, collection ->
+                                CollectionCard(
+                                    server = server,
+                                    collection = collection,
+                                    onClick = {
+                                        collectionFilter = collection.title
+                                        browseTab = BrowseTab.ALL
+                                        runCatching { searchFocus.requestFocus() }
+                                    },
+                                    modifier = if (index == 0) Modifier.focusRequester(firstCollectionCardFocus) else Modifier,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    if (availableGenres.isEmpty()) {
+                        Text("No genres found", modifier = Modifier.padding(32.dp))
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(GRID_COLUMNS),
+                            contentPadding = PaddingValues(32.dp),
+                            horizontalArrangement = Arrangement.spacedBy(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(24.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            itemsIndexed(availableGenres, key = { _, genre -> genre }) { index, genre ->
+                                GenreTile(
+                                    genre = genre,
+                                    onClick = {
+                                        genreFilter = genre
+                                        browseTab = BrowseTab.ALL
+                                        runCatching { searchFocus.requestFocus() }
+                                    },
+                                    modifier = if (index == 0) Modifier.focusRequester(firstGenreTileFocus) else Modifier,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -228,6 +356,7 @@ fun LibraryScreen(
                 genreFilter = genreFilter,
                 decadeFilter = decadeFilter,
                 dateAddedFilter = dateAddedFilter,
+                collectionFilter = collectionFilter,
                 genreFocuses = genreFocuses,
                 decadeFocuses = decadeFocuses,
                 dateAddedFocuses = dateAddedFocuses,
@@ -239,6 +368,7 @@ fun LibraryScreen(
                     genreFilter = null
                     decadeFilter = null
                     dateAddedFilter = null
+                    collectionFilter = null
                     filtersExpanded = false
                     runCatching { filterButtonFocus.requestFocus() }
                 },
@@ -350,6 +480,7 @@ private fun FilterMenu(
     genreFilter: String?,
     decadeFilter: Int?,
     dateAddedFilter: DateAddedBucket?,
+    collectionFilter: String?,
     genreFocuses: Map<String, FocusRequester>,
     decadeFocuses: Map<Int, FocusRequester>,
     dateAddedFocuses: Map<DateAddedBucket, FocusRequester>,
@@ -361,7 +492,7 @@ private fun FilterMenu(
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
-    val anyApplied = genreFilter != null || decadeFilter != null || dateAddedFilter != null
+    val anyApplied = genreFilter != null || decadeFilter != null || dateAddedFilter != null || collectionFilter != null
 
     val orderedFocuses = remember(availableGenres, availableDecades) {
         availableGenres.map { genreFocuses.getValue(it) } +
@@ -410,7 +541,9 @@ private fun FilterMenu(
             if (availableGenres.isNotEmpty()) {
                 MenuSectionHeader("Genre")
                 availableGenres.forEachIndexed { index, genre ->
-                    val dimmed = applyLibraryFilters(items, query, SortMode.TITLE, genre, decadeFilter, dateAddedFilter).isEmpty()
+                    val dimmed = applyLibraryFilters(
+                        items, query, SortMode.TITLE, genre, decadeFilter, dateAddedFilter, collectionFilter,
+                    ).isEmpty()
                     MenuOptionRow(
                         label = genre,
                         applied = genre == genreFilter,
@@ -423,7 +556,9 @@ private fun FilterMenu(
             if (availableDecades.isNotEmpty()) {
                 MenuSectionHeader("Release Date")
                 availableDecades.forEachIndexed { index, decade ->
-                    val dimmed = applyLibraryFilters(items, query, SortMode.TITLE, genreFilter, decade, dateAddedFilter).isEmpty()
+                    val dimmed = applyLibraryFilters(
+                        items, query, SortMode.TITLE, genreFilter, decade, dateAddedFilter, collectionFilter,
+                    ).isEmpty()
                     MenuOptionRow(
                         label = "${decade}s",
                         applied = decade == decadeFilter,
@@ -437,7 +572,9 @@ private fun FilterMenu(
             }
             MenuSectionHeader("Date Added")
             DateAddedBucket.entries.forEachIndexed { index, bucket ->
-                val dimmed = applyLibraryFilters(items, query, SortMode.TITLE, genreFilter, decadeFilter, bucket).isEmpty()
+                val dimmed = applyLibraryFilters(
+                    items, query, SortMode.TITLE, genreFilter, decadeFilter, bucket, collectionFilter,
+                ).isEmpty()
                 MenuOptionRow(
                     label = bucket.label,
                     applied = bucket == dateAddedFilter,
@@ -527,4 +664,67 @@ private fun LibraryPoster(
             Text(text = item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 16.dp))
         },
     )
+}
+
+@Composable
+private fun CollectionCard(
+    server: PlexServer,
+    collection: PlexCollection,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ShumCardContainer(
+        modifier = modifier.width(160.dp),
+        imageCard = { interactionSource ->
+            ShumCard(
+                onClick = onClick,
+                interactionSource = interactionSource,
+                modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+            ) {
+                ShumArtwork(
+                    model = PlexImageUrl.of(server, collection.thumb),
+                    contentDescription = collection.title,
+                    modifier = Modifier.fillMaxSize(),
+                    noiseOpacity = 0.4f,
+                )
+            }
+        },
+        title = {
+            Column(modifier = Modifier.padding(top = 16.dp)) {
+                Text(text = collection.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val childCount = collection.childCount
+                if (childCount != null) {
+                    Text(
+                        text = "$childCount title${if (childCount == 1) "" else "s"}",
+                        color = AppOnSurfaceVariant,
+                    )
+                }
+            }
+        },
+    )
+}
+
+private val genreTileShape = RoundedCornerShape(8.dp)
+private val genreTileColors = ShumColors(container = AppSurfaceVariant, content = AppWhite, focusedContainer = NeonPurple)
+private val genreTileBorder = ShumBorder(focused = BorderStroke(2.dp, NeonPurpleGradient))
+private val genreTileGlow = ShumGlow(focusedColor = NeonPurpleGlow)
+
+@Composable
+private fun GenreTile(genre: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    FocusableSurface(
+        onClick = onClick,
+        modifier = modifier.width(160.dp).aspectRatio(2f / 3f),
+        shape = genreTileShape,
+        colors = genreTileColors,
+        border = genreTileBorder,
+        glow = genreTileGlow,
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = genre,
+            style = ShumTypography.titleMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(16.dp),
+        )
+    }
 }

@@ -495,6 +495,14 @@ fun SettingsScreen(
             ) {
                 Text("Save")
             }
+
+            Spacer(Modifier.height(16.dp))
+            val versionName = remember {
+                runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+            }
+            if (versionName != null) {
+                Text("Version $versionName", color = AppOnSurfaceVariant)
+            }
         }
 
         NeonScrollbar(scrollState = scrollState, modifier = Modifier.padding(vertical = 48.dp, horizontal = 12.dp))

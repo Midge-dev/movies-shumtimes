@@ -40,6 +40,7 @@ fun applyLibraryFilters(
     genre: String?,
     decade: Int?,
     dateAddedBucket: DateAddedBucket?,
+    collection: String? = null,
     nowEpochSeconds: Long = System.currentTimeMillis() / 1000,
 ): List<PlexLibraryItem> {
     var result = items.asSequence()
@@ -48,6 +49,9 @@ fun applyLibraryFilters(
     }
     if (genre != null) {
         result = result.filter { item -> item.genres.any { it.tag == genre } }
+    }
+    if (collection != null) {
+        result = result.filter { item -> item.collections.any { it.tag == collection } }
     }
     if (decade != null) {
         result = result.filter { decadeOf(it) == decade }

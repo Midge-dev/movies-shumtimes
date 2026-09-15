@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -55,6 +56,7 @@ import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumColors
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.theme.AppOnSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppSurface
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
@@ -88,6 +90,10 @@ fun AppNavigationDrawer(
         label = "railWidth",
     )
     val homeItemFocus = remember { FocusRequester() }
+    val context = LocalContext.current
+    val versionName = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -136,6 +142,20 @@ fun AppNavigationDrawer(
                 expanded = expanded,
                 onClick = onOpenSettings,
             )
+            if (versionName != null) {
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(tween(durationMillis = RAIL_ANIM_DURATION_MS - LABEL_FADE_DELAY_MS, delayMillis = LABEL_FADE_DELAY_MS)),
+                    exit = fadeOut(tween(durationMillis = LABEL_FADE_OUT_MS)),
+                ) {
+                    Text(
+                        text = "v$versionName",
+                        style = ShumTypography.bodySmall,
+                        color = AppOnSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+                    )
+                }
+            }
         }
     }
 }

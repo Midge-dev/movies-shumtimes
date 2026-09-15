@@ -42,6 +42,16 @@ data class PlexLibraryItem(
     val addedAt: Long? = null,
     val originallyAvailableAt: String? = null,
     @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
+    @SerialName("Collection") val collections: List<PlexTag> = emptyList(),
+)
+
+@Serializable
+data class PlexCollection(
+    val ratingKey: String,
+    val title: String,
+    val thumb: String? = null,
+    val art: String? = null,
+    val childCount: Int? = null,
 )
 
 @Serializable

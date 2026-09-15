@@ -62,6 +62,12 @@ private data class HubsMediaContainer(@SerialName("Hub") val hubs: List<PlexHub>
 @Serializable
 private data class HubsResponse(@SerialName("MediaContainer") val mediaContainer: HubsMediaContainer)
 
+@Serializable
+private data class CollectionsMediaContainer(@SerialName("Metadata") val items: List<PlexCollection> = emptyList())
+
+@Serializable
+private data class CollectionsResponse(@SerialName("MediaContainer") val mediaContainer: CollectionsMediaContainer)
+
 class PlexServerApi(private val server: PlexServer, private val clientIdentifier: String) {
     private val client = plexHttpClient()
 
@@ -79,6 +85,9 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
 
     suspend fun fetchLibraryItems(sectionKey: String): List<PlexLibraryItem> =
         get<LibraryItemsResponse>("${server.baseUrl}/library/sections/$sectionKey/all").mediaContainer.items
+
+    suspend fun fetchCollections(sectionKey: String): List<PlexCollection> =
+        get<CollectionsResponse>("${server.baseUrl}/library/sections/$sectionKey/collections").mediaContainer.items
 
     suspend fun fetchSeasons(showRatingKey: String): List<PlexSeason> =
         get<SeasonsResponse>("${server.baseUrl}/library/metadata/$showRatingKey/children").mediaContainer.items
