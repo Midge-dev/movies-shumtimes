@@ -30,6 +30,7 @@ import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
+import com.moviesshumtimes.tv.ui.common.WatchlistButton
 import com.moviesshumtimes.tv.ui.common.formatTimecode
 import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumButton
@@ -53,6 +54,8 @@ fun EpisodeDetailScreen(
     onPlayFromStart: () -> Unit,
     onWatchTogether: () -> Unit,
     onRestartTogether: () -> Unit,
+    isOnWatchlist: Boolean,
+    onToggleWatchlist: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
 
@@ -127,6 +130,7 @@ fun EpisodeDetailScreen(
                         Icon(Icons.Filled.Replay, contentDescription = "Restart together from the beginning", tint = AppWhite)
                     }
                 }
+                WatchlistButton(isOnWatchlist = isOnWatchlist, onClick = onToggleWatchlist)
             }
         }
     }

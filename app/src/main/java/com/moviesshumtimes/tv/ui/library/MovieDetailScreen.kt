@@ -38,6 +38,7 @@ import com.moviesshumtimes.tv.data.plex.PlexPerson
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
+import com.moviesshumtimes.tv.ui.common.WatchlistButton
 import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumIconButton
@@ -60,6 +61,8 @@ fun MovieDetailScreen(
     onWatchTogether: (targetRatingKey: String) -> Unit,
     onRestartTogether: (targetRatingKey: String) -> Unit,
     onSeasons: () -> Unit,
+    isOnWatchlist: Boolean,
+    onToggleWatchlist: () -> Unit,
     resolveNextEpisode: suspend () -> PlexOnDeckItem?,
     loadDetail: suspend () -> PlexMovieDetail?,
     loadRelatedHubs: suspend () -> List<PlexHub>,
@@ -137,6 +140,8 @@ fun MovieDetailScreen(
                 onWatchTogether = { playTarget?.let(onWatchTogether) },
                 onRestartTogether = { playTarget?.let(onRestartTogether) },
                 onSeasons = onSeasons,
+                isOnWatchlist = isOnWatchlist,
+                onToggleWatchlist = onToggleWatchlist,
                 onActionButtonFocused = { heroFocusToken++ },
             )
         }
@@ -189,6 +194,8 @@ private fun MovieHero(
     onWatchTogether: () -> Unit,
     onRestartTogether: () -> Unit,
     onSeasons: () -> Unit,
+    isOnWatchlist: Boolean,
+    onToggleWatchlist: () -> Unit,
     onActionButtonFocused: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxWidth().height(HERO_HEIGHT_DP.dp)) {
@@ -239,6 +246,11 @@ private fun MovieHero(
                         Icon(Icons.Filled.Replay, contentDescription = "Restart together from the beginning", tint = AppWhite)
                     }
                 }
+                WatchlistButton(
+                    isOnWatchlist = isOnWatchlist,
+                    onClick = onToggleWatchlist,
+                    modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
+                )
                 if (isShow) {
                     ShumOutlinedButton(
                         onClick = onSeasons,

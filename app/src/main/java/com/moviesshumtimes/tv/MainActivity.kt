@@ -30,6 +30,7 @@ import com.moviesshumtimes.tv.ui.theme.AppBackground
 import com.moviesshumtimes.tv.ui.theme.AppOnBackground
 import com.moviesshumtimes.tv.data.plex.PlexAccount
 import com.moviesshumtimes.tv.data.plex.PlexAuthApi
+import com.moviesshumtimes.tv.data.plex.PlexCollection
 import com.moviesshumtimes.tv.data.plex.PlexEpisode
 import com.moviesshumtimes.tv.data.plex.PlexHub
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
@@ -42,6 +43,8 @@ import com.moviesshumtimes.tv.data.plex.PlexSeason
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.plex.PlexServerApi
+import com.moviesshumtimes.tv.data.plex.PlexWatchlistApi
+import com.moviesshumtimes.tv.data.plex.PlexWatchlistItem
 import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.data.settings.RelayIdentity
 import com.moviesshumtimes.tv.data.settings.appSettingsStore
@@ -56,6 +59,7 @@ import com.moviesshumtimes.tv.sync.RelayRoomSummary
 import com.moviesshumtimes.tv.sync.RoomIntent
 import com.moviesshumtimes.tv.ui.auth.AuthScreen
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
+import com.moviesshumtimes.tv.ui.library.CollectionDetailScreen
 import com.moviesshumtimes.tv.ui.library.EpisodeDetailScreen
 import com.moviesshumtimes.tv.ui.library.LibraryScreen
 import com.moviesshumtimes.tv.ui.library.MovieDetailScreen
@@ -144,6 +148,12 @@ private sealed interface AppState {
         val items: List<PlexLibraryItem>,
         val returnState: AppState,
     ) : AppState
+    data class CollectionDetail(
+        val ctx: LibraryContext,
+        val collection: PlexCollection,
+        val items: List<PlexLibraryItem>,
+        val returnState: AppState,
+    ) : AppState
     data class ShowSeasons(
         val ctx: LibraryContext,
         val show: PlexLibraryItem,
@@ -192,6 +202,22 @@ private fun AppRoot() {
     var clientIdentifier by remember { mutableStateOf("") }
     var localAccount by remember { mutableStateOf<PlexAccount?>(null) }
     var accountToken by remember { mutableStateOf<String?>(null) }
+
+    var watchlistItems by remember { mutableStateOf<List<PlexWatchlistItem>?>(null) }
+    suspend fun refreshWatchlist() {
+        val token = accountToken ?: return
+        watchlistItems = runCatching { PlexWatchlistApi(clientIdentifier).fetchWatchlist(token) }.getOrNull() ?: watchlistItems
+    }
+    fun isOnWatchlist(guid: String?): Boolean = guid != null && watchlistItems?.any { it.guid == guid } == true
+    suspend fun toggleWatchlist(guid: String?) {
+        val token = accountToken
+        if (guid == null || token == null) return
+        val api = PlexWatchlistApi(clientIdentifier)
+        runCatching {
+            if (isOnWatchlist(guid)) api.removeFromWatchlist(token, guid) else api.addToWatchlist(token, guid)
+        }
+        refreshWatchlist()
+    }
 
     var relayIdentity by remember { mutableStateOf<RelayIdentity?>(null) }
     var relayClient by remember { mutableStateOf<RelayClient?>(null) }
@@ -463,6 +489,7 @@ private fun AppRoot() {
             val relayConfigured = context.appSettingsStore.observe().first().relays.isNotEmpty()
             if (relayConfigured) loadHome(server, sections) else AppState.RelaySetup(ctx)
         }.getOrElse { AppState.Error(it.message ?: "Something went wrong connecting to Plex") }
+        scope.launch { refreshWatchlist() }
     }
 
     LaunchedEffect(Unit) {
@@ -675,6 +702,39 @@ private fun AppRoot() {
                         PlexServerApi(current.ctx.server, clientIdentifier).fetchCollections(current.ctx.selectedSection.key)
                     }.getOrDefault(emptyList())
                 },
+                onSelectCollection = { collection ->
+                    scope.launch {
+                        val items = runCatching {
+                            PlexServerApi(current.ctx.server, clientIdentifier).fetchCollectionItems(collection.ratingKey)
+                        }.getOrDefault(emptyList())
+                        state = AppState.CollectionDetail(current.ctx, collection, items, AppState.Library(current.ctx))
+                    }
+                },
+                loadWatchlist = {
+                    if (watchlistItems == null) refreshWatchlist()
+                    watchlistItems ?: emptyList()
+                },
+                onToggleWatchlistItem = { entry -> toggleWatchlist(entry.guid) },
+            )
+        }
+        is AppState.CollectionDetail -> AppNavigationDrawer(
+            sections = current.ctx.sections,
+            selectedSectionKey = current.ctx.selectedSection.key,
+            isSettingsSelected = false,
+            isHomeSelected = false,
+            onSelectSection = { section -> selectSection(current.ctx, section) },
+            onOpenSettings = { state = AppState.Settings(current.ctx, returnState = AppState.Library(current.ctx)) },
+            onOpenHome = { scope.launch { state = loadHome(current.ctx.server, current.ctx.sections) } },
+            account = localAccount,
+        ) {
+            CollectionDetailScreen(
+                server = current.ctx.server,
+                collection = current.collection,
+                items = current.items,
+                onSelectItem = { item ->
+                    state = AppState.MovieDetail(current.ctx, item, returnState = current)
+                },
+                onBack = { returnTo(current.returnState) },
             )
         }
         is AppState.LoadingSection -> AppNavigationDrawer(
@@ -728,6 +788,8 @@ private fun AppRoot() {
                 movie = current.movie,
                 isShow = isShow,
                 onBack = { returnTo(current.returnState) },
+                isOnWatchlist = isOnWatchlist(current.movie.guid),
+                onToggleWatchlist = { scope.launch { toggleWatchlist(current.movie.guid) } },
                 resolveNextEpisode = {
                     runCatching {
                         PlexServerApi(current.ctx.server, clientIdentifier).fetchNextEpisodeForShow(current.movie.ratingKey)
@@ -912,6 +974,8 @@ private fun AppRoot() {
                 showTitle = current.show.title,
                 episode = current.episode,
                 onBack = { returnTo(current.returnState) },
+                isOnWatchlist = isOnWatchlist(current.show.guid),
+                onToggleWatchlist = { scope.launch { toggleWatchlist(current.show.guid) } },
                 onPlay = {
                     scope.launch {
                         val fetched = runCatching {

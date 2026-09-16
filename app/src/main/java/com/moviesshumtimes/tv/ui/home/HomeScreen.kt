@@ -69,6 +69,7 @@ import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
 import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.sync.RelayRoomSummary
+import com.moviesshumtimes.tv.ui.common.RemoveConfirmOverlay
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.formatTimecode
 import com.moviesshumtimes.tv.ui.common.suppressAncestorBringIntoView
@@ -625,6 +626,7 @@ private fun ContinueWatchingPoster(
             ) {
                 if (confirmingRemove) {
                     RemoveConfirmOverlay(
+                        message = "Remove from Continue Watching?",
                         onConfirm = { confirmingRemove = false; onRemove() },
                         onCancel = { confirmingRemove = false },
                     )
@@ -689,28 +691,3 @@ private fun ContinueWatchingPoster(
     )
 }
 
-@Composable
-private fun RemoveConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
-    val removeFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { removeFocus.requestFocus() } }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppScrim.copy(alpha = 0.85f))
-            .focusGroup()
-            .focusProperties { onExit = { cancelFocusChange() } },
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Remove from Continue Watching?", textAlign = TextAlign.Center, style = ShumTypography.bodyLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                ShumButton(
-                    onClick = onConfirm,
-                    compact = true,
-                    modifier = Modifier.focusRequester(removeFocus),
-                ) { Text("Remove") }
-                ShumButton(onClick = onCancel, compact = true) { Text("Cancel") }
-            }
-        }
-    }
-}

@@ -41,8 +41,21 @@ data class PlexLibraryItem(
     val summary: String? = null,
     val addedAt: Long? = null,
     val originallyAvailableAt: String? = null,
+    val guid: String? = null,
     @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
     @SerialName("Collection") val collections: List<PlexTag> = emptyList(),
+)
+
+/** A Discover-universe watchlist entry from `discover.provider.plex.tv` — distinct from any local server's [PlexLibraryItem]. */
+@Serializable
+data class PlexWatchlistItem(
+    val ratingKey: String,
+    val type: String? = null,
+    val title: String,
+    val thumb: String? = null,
+    val year: Int? = null,
+    val guid: String? = null,
+    val addedAt: Long? = null,
 )
 
 @Serializable
@@ -129,6 +142,7 @@ data class PlexMovieDetail(
     val title: String,
     val thumb: String? = null,
     val art: String? = null,
+    val guid: String? = null,
     val duration: Long? = null,
     val viewOffset: Long? = null,
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),

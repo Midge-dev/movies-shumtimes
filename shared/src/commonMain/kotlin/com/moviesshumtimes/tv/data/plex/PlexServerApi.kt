@@ -89,6 +89,9 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
     suspend fun fetchCollections(sectionKey: String): List<PlexCollection> =
         get<CollectionsResponse>("${server.baseUrl}/library/sections/$sectionKey/collections").mediaContainer.items
 
+    suspend fun fetchCollectionItems(collectionRatingKey: String): List<PlexLibraryItem> =
+        get<LibraryItemsResponse>("${server.baseUrl}/library/metadata/$collectionRatingKey/children").mediaContainer.items
+
     suspend fun fetchSeasons(showRatingKey: String): List<PlexSeason> =
         get<SeasonsResponse>("${server.baseUrl}/library/metadata/$showRatingKey/children").mediaContainer.items
 
