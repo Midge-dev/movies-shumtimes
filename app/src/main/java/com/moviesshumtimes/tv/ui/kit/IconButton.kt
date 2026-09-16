@@ -32,6 +32,7 @@ fun ShumIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    border: ShumBorder = iconButtonBorder,
     interactionSource: MutableInteractionSource? = null,
     content: @Composable () -> Unit,
 ) {
@@ -41,7 +42,7 @@ fun ShumIconButton(
         enabled = enabled,
         shape = IconButtonShape,
         colors = iconButtonColors,
-        border = iconButtonBorder,
+        border = border,
         glow = iconButtonGlow,
         interactionSource = interactionSource,
     ) {

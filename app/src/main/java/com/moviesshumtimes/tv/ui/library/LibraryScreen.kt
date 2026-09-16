@@ -50,6 +50,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.moviesshumtimes.tv.data.plex.PlexCollection
 import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
@@ -84,7 +85,7 @@ private const val GRID_COLUMNS = 5
 
 private enum class BrowseTab(val label: String) {
     ALL("All"),
-    GENRE("Genre"),
+    GENRE("Genres"),
     COLLECTIONS("Collections"),
     WATCHLIST("Watchlist"),
     SEARCH("Search"),
@@ -141,6 +142,7 @@ fun LibraryScreen(
     val firstAllItemFocus = remember { FocusRequester() }
     val firstCollectionCardFocus = remember { FocusRequester() }
     val firstWatchlistCardFocus = remember { FocusRequester() }
+    val firstGenreResultFocus = remember { FocusRequester() }
     val clearAllFocus = remember { FocusRequester() }
     val genreFocuses = remember(availableGenres) { availableGenres.associateWith { FocusRequester() } }
     val decadeFocuses = remember(availableDecades) { availableDecades.associateWith { FocusRequester() } }
@@ -164,6 +166,14 @@ fun LibraryScreen(
         runCatching { tabFocuses.getValue(browseTab).requestFocus() }
     }
 
+    val downFocus = when (browseTab) {
+        BrowseTab.ALL -> if (items.isEmpty()) FocusRequester.Cancel else firstAllItemFocus
+        BrowseTab.GENRE -> firstGenrePanelFocus
+        BrowseTab.COLLECTIONS -> if (collections.isNullOrEmpty()) FocusRequester.Cancel else firstCollectionCardFocus
+        BrowseTab.WATCHLIST -> if (watchlist.isNullOrEmpty()) FocusRequester.Cancel else firstWatchlistCardFocus
+        BrowseTab.SEARCH -> firstSearchKeyFocus
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 32.dp, top = 16.dp, end = 32.dp),
@@ -171,13 +181,6 @@ fun LibraryScreen(
             verticalAlignment = Alignment.Bottom,
         ) {
             BrowseTab.entries.forEachIndexed { index, tab ->
-                val downFocus = when (tab) {
-                    BrowseTab.ALL -> if (items.isEmpty()) FocusRequester.Cancel else firstAllItemFocus
-                    BrowseTab.GENRE -> firstGenrePanelFocus
-                    BrowseTab.COLLECTIONS -> if (collections.isNullOrEmpty()) FocusRequester.Cancel else firstCollectionCardFocus
-                    BrowseTab.WATCHLIST -> if (watchlist.isNullOrEmpty()) FocusRequester.Cancel else firstWatchlistCardFocus
-                    BrowseTab.SEARCH -> firstSearchKeyFocus
-                }
                 LibraryTab(
                     label = tab.label,
                     selected = browseTab == tab,
@@ -241,15 +244,17 @@ fun LibraryScreen(
                         decadeFocuses = decadeFocuses,
                         dateAddedFocuses = dateAddedFocuses,
                         clearAllFocus = clearAllFocus,
+                        genreTabFocus = genreTabFocus,
+                        firstResultFocus = if (genreResults.isEmpty()) null else firstGenreResultFocus,
                         onGenreSelect = { genreFilter = if (genreFilter == it) null else it },
                         onDecadeSelect = { decadeFilter = if (decadeFilter == it) null else it },
                         onDateAddedSelect = { dateAddedFilter = if (dateAddedFilter == it) null else it },
                         onClearAll = { genreFilter = null; decadeFilter = null; dateAddedFilter = null },
-                        modifier = Modifier.width(420.dp).fillMaxHeight(),
+                        modifier = Modifier.fillMaxHeight(),
                     )
                     Column(modifier = Modifier.weight(1f).padding(horizontal = 32.dp, vertical = 24.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            genreFilter?.let { AppliedFilterChip(it) }
+                            genreFilter?.let { AppliedFilterChip(formatGenreLabel(it)) }
                             decadeFilter?.let { AppliedFilterChip("${it}s") }
                             dateAddedFilter?.let { AppliedFilterChip(it.label) }
                             Box(modifier = Modifier.weight(1f))
@@ -263,8 +268,13 @@ fun LibraryScreen(
                                 verticalArrangement = Arrangement.spacedBy(24.dp),
                                 modifier = Modifier.fillMaxSize(),
                             ) {
-                                itemsIndexed(genreResults, key = { _, item -> item.ratingKey }) { _, item ->
-                                    LibraryPoster(server = server, item = item, onClick = { onSelectItem(item) })
+                                itemsIndexed(genreResults, key = { _, item -> item.ratingKey }) { index, item ->
+                                    LibraryPoster(
+                                        server = server,
+                                        item = item,
+                                        onClick = { onSelectItem(item) },
+                                        modifier = if (index == 0) Modifier.focusRequester(firstGenreResultFocus) else Modifier,
+                                    )
                                 }
                             }
                             if (genreResults.isEmpty()) {
@@ -354,13 +364,13 @@ fun LibraryScreen(
 
             BrowseTab.SEARCH -> {
                 Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(32.dp)) {
-                    Column(modifier = Modifier.width(560.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                    Column(modifier = Modifier.width(210.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(AppSurface, RoundedCornerShape(8.dp))
                                 .border(BorderStroke(2.dp, AppSurfaceVariant), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 24.dp, vertical = 22.dp),
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                         ) {
                             Text(
                                 text = searchQuery.ifEmpty { "Type a title…" },
@@ -425,16 +435,18 @@ private fun LibraryTab(label: String, selected: Boolean, onClick: () -> Unit, mo
         glow = tabGlow,
     ) {
         if (selected) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .background(
-                        Brush.horizontalGradient(listOf(NeonPurpleGlow, NeonPurple)),
-                        RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp),
-                    ),
-            )
+            Box(modifier = Modifier.matchParentSize()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(
+                            Brush.horizontalGradient(listOf(NeonPurpleGlow, NeonPurple)),
+                            RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp),
+                        ),
+                )
+            }
         }
         Text(
             text = label,
@@ -466,9 +478,18 @@ private val menuRowColors = ShumColors(
 private val menuRowBorder = ShumBorder(focused = BorderStroke(2.dp, NeonPurpleGradient))
 private val menuRowGlow = ShumGlow(focusedColor = NeonPurpleGlow)
 
+private val missingSpaceAfterAmpersand = Regex("&(?=\\S)")
+
+private fun formatGenreLabel(genre: String): String = genre.replace(missingSpaceAfterAmpersand, "& ")
+
 @Composable
 private fun MenuSectionHeader(label: String) {
-    Text(label, style = ShumTypography.titleMedium, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
+    Text(
+        text = label.uppercase(),
+        style = ShumTypography.bodySmall.copy(letterSpacing = 1.5.sp),
+        color = AppOnSurfaceVariant,
+        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+    )
 }
 
 @Composable
@@ -490,7 +511,7 @@ private fun MenuOptionRow(
     }
     FocusableSurface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().height(46.dp),
+        modifier = modifier.height(46.dp),
         selected = applied,
         shape = MenuShape,
         colors = colors,
@@ -499,13 +520,11 @@ private fun MenuOptionRow(
         contentAlignment = Alignment.CenterStart,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(modifier = Modifier.width(16.dp)) {
-                if (applied) Text("✓")
-            }
+            if (applied) Text("✓")
             Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -523,6 +542,8 @@ private fun GenreFilterPanel(
     decadeFocuses: Map<Int, FocusRequester>,
     dateAddedFocuses: Map<DateAddedBucket, FocusRequester>,
     clearAllFocus: FocusRequester,
+    genreTabFocus: FocusRequester,
+    firstResultFocus: FocusRequester?,
     onGenreSelect: (String) -> Unit,
     onDecadeSelect: (Int) -> Unit,
     onDateAddedSelect: (DateAddedBucket) -> Unit,
@@ -542,9 +563,10 @@ private fun GenreFilterPanel(
         up = when {
             index > 0 -> orderedFocuses[index - 1]
             anyApplied -> clearAllFocus
-            else -> FocusRequester.Cancel
+            else -> genreTabFocus
         }
         down = if (index < orderedFocuses.lastIndex) orderedFocuses[index + 1] else FocusRequester.Cancel
+        right = firstResultFocus ?: FocusRequester.Cancel
     }
 
     Row(
@@ -554,7 +576,7 @@ private fun GenreFilterPanel(
             .padding(24.dp),
     ) {
         Column(
-            modifier = Modifier.weight(1f).verticalScroll(scrollState),
+            modifier = Modifier.verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             if (anyApplied) {
@@ -565,8 +587,9 @@ private fun GenreFilterPanel(
                     modifier = Modifier
                         .focusRequester(clearAllFocus)
                         .focusProperties {
-                            up = FocusRequester.Cancel
+                            up = genreTabFocus
                             down = orderedFocuses.firstOrNull() ?: FocusRequester.Cancel
+                            right = firstResultFocus ?: FocusRequester.Cancel
                         },
                 )
             }
@@ -575,7 +598,7 @@ private fun GenreFilterPanel(
                 availableGenres.forEachIndexed { index, genre ->
                     val dimmed = applyLibraryFilters(items, "", SortMode.TITLE, genre, decadeFilter, dateAddedFilter).isEmpty()
                     MenuOptionRow(
-                        label = genre,
+                        label = formatGenreLabel(genre),
                         applied = genre == genreFilter,
                         dimmed = dimmed,
                         onClick = { onGenreSelect(genre) },
@@ -847,9 +870,9 @@ private fun SearchKeyboard(
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SEARCH_KEY_ROWS.forEachIndexed { rowIndex, row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 var col = 0
                 row.forEach { key ->
                     val colStart = col
@@ -865,7 +888,7 @@ private fun SearchKeyboard(
                         },
                         modifier = Modifier
                             .weight(key.span.toFloat())
-                            .height(72.dp)
+                            .height(30.dp)
                             .focusRequester(keyFocuses.getValue(key))
                             .focusProperties {
                                 up = if (rowIndex > 0) keyFocuses.getValue(SEARCH_KEY_GRID[rowIndex - 1][colStart]) else FocusRequester.Cancel
@@ -889,7 +912,13 @@ private fun SearchKeyboard(
                         border = searchKeyBorder,
                         glow = searchKeyGlow,
                     ) {
-                        Text(key.label, textAlign = TextAlign.Center)
+                        Text(
+                            key.label,
+                            textAlign = TextAlign.Center,
+                            style = ShumTypography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }

@@ -3,6 +3,7 @@ package com.moviesshumtimes.tv.ui.library
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -33,16 +37,24 @@ import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
 import com.moviesshumtimes.tv.ui.common.WatchlistButton
 import com.moviesshumtimes.tv.ui.common.formatTimecode
 import com.moviesshumtimes.tv.ui.kit.Icon
+import com.moviesshumtimes.tv.ui.kit.ShumBorder
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumIconButton
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.theme.AppDimBorder
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppWhite
+import com.moviesshumtimes.tv.ui.theme.NeonPurpleGradient
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 
 private const val HERO_HEIGHT_DP = 420
+
+private val restartButtonBorder = ShumBorder(
+    idle = BorderStroke(2.dp, AppDimBorder),
+    focused = BorderStroke(2.dp, NeonPurpleGradient),
+)
 
 @Composable
 fun EpisodeDetailScreen(
@@ -54,8 +66,9 @@ fun EpisodeDetailScreen(
     onPlayFromStart: () -> Unit,
     onWatchTogether: () -> Unit,
     onRestartTogether: () -> Unit,
-    isOnWatchlist: Boolean,
-    onToggleWatchlist: () -> Unit,
+    isOnWatchlist: (String?) -> Boolean,
+    onToggleWatchlist: (String?) -> Unit,
+    loadShowGuid: suspend () -> String?,
 ) {
     BackHandler(onBack = onBack)
 
@@ -63,6 +76,9 @@ fun EpisodeDetailScreen(
     LaunchedEffect(episode.ratingKey) {
         runCatching { primaryFocus.requestFocus() }
     }
+
+    var showGuid by remember(episode.ratingKey) { mutableStateOf<String?>(null) }
+    LaunchedEffect(episode.ratingKey) { showGuid = loadShowGuid() }
 
     val hasResume = (episode.viewOffset ?: 0L) > 0L
     val kicker = buildString {
@@ -125,12 +141,12 @@ fun EpisodeDetailScreen(
                     WatchTogetherIcon()
                     Text(if (hasResume) "Continue Together" else "Watch Together", modifier = Modifier.padding(start = 12.dp))
                 }
+                WatchlistButton(isOnWatchlist = isOnWatchlist(showGuid), onClick = { onToggleWatchlist(showGuid) })
                 if (hasResume) {
-                    ShumIconButton(onClick = onRestartTogether) {
+                    ShumIconButton(onClick = onRestartTogether, border = restartButtonBorder) {
                         Icon(Icons.Filled.Replay, contentDescription = "Restart together from the beginning", tint = AppWhite)
                     }
                 }
-                WatchlistButton(isOnWatchlist = isOnWatchlist, onClick = onToggleWatchlist)
             }
         }
     }

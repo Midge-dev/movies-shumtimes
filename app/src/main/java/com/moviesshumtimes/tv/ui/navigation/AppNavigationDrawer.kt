@@ -50,6 +50,7 @@ import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
 import com.moviesshumtimes.tv.data.plex.PlexAccount
 import com.moviesshumtimes.tv.data.plex.PlexSection
+import com.moviesshumtimes.tv.ui.common.DigitalClock
 import com.moviesshumtimes.tv.ui.common.onDpadLongPress
 import com.moviesshumtimes.tv.ui.kit.FocusableSurface
 import com.moviesshumtimes.tv.ui.kit.Icon
@@ -58,6 +59,7 @@ import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppOnSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppSurface
+import com.moviesshumtimes.tv.ui.theme.AppSurfaceVariant
 import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 
@@ -104,58 +106,75 @@ fun AppNavigationDrawer(
         ) {
             content()
         }
-        Column(
+        DigitalClock(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 20.dp, end = 32.dp),
+        )
+        Box(
             modifier = Modifier
                 .zIndex(1f)
                 .fillMaxHeight()
                 .width(railWidth)
-                .background(AppSurface)
-                .focusGroup()
-                .onFocusChanged { expanded = it.hasFocus }
-                .padding(vertical = 24.dp, horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .background(AppSurface),
         ) {
-            UserAvatarItem(account = account, expanded = expanded)
-            Spacer(modifier = Modifier.height(8.dp))
-            SidebarItem(
-                icon = Icons.Default.Home,
-                label = "Home",
-                selected = isHomeSelected,
-                expanded = expanded,
-                onClick = onOpenHome,
-                modifier = Modifier.focusRequester(homeItemFocus),
-            )
-            for (section in sections) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .focusGroup()
+                    .onFocusChanged { expanded = it.hasFocus }
+                    .padding(vertical = 24.dp, horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                UserAvatarItem(account = account, expanded = expanded)
+                Spacer(modifier = Modifier.height(8.dp))
                 SidebarItem(
-                    icon = if (section.type == SECTION_TYPE_SHOW) Icons.Default.Tv else Icons.Default.Movie,
-                    label = section.title,
-                    selected = !isSettingsSelected && !isHomeSelected && section.key == selectedSectionKey,
+                    icon = Icons.Default.Home,
+                    label = "Home",
+                    selected = isHomeSelected,
                     expanded = expanded,
-                    onClick = { onSelectSection(section) },
+                    onClick = onOpenHome,
+                    modifier = Modifier.focusRequester(homeItemFocus),
                 )
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            SidebarItem(
-                icon = Icons.Default.Settings,
-                label = "Settings",
-                selected = isSettingsSelected,
-                expanded = expanded,
-                onClick = onOpenSettings,
-            )
-            if (versionName != null) {
-                AnimatedVisibility(
-                    visible = expanded,
-                    enter = fadeIn(tween(durationMillis = RAIL_ANIM_DURATION_MS - LABEL_FADE_DELAY_MS, delayMillis = LABEL_FADE_DELAY_MS)),
-                    exit = fadeOut(tween(durationMillis = LABEL_FADE_OUT_MS)),
-                ) {
-                    Text(
-                        text = "v$versionName",
-                        style = ShumTypography.bodySmall,
-                        color = AppOnSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+                for (section in sections) {
+                    SidebarItem(
+                        icon = if (section.type == SECTION_TYPE_SHOW) Icons.Default.Tv else Icons.Default.Movie,
+                        label = section.title,
+                        selected = !isSettingsSelected && !isHomeSelected && section.key == selectedSectionKey,
+                        expanded = expanded,
+                        onClick = { onSelectSection(section) },
                     )
                 }
+                Spacer(modifier = Modifier.weight(1f))
+                SidebarItem(
+                    icon = Icons.Default.Settings,
+                    label = "Settings",
+                    selected = isSettingsSelected,
+                    expanded = expanded,
+                    onClick = onOpenSettings,
+                )
+                if (versionName != null) {
+                    AnimatedVisibility(
+                        visible = expanded,
+                        enter = fadeIn(tween(durationMillis = RAIL_ANIM_DURATION_MS - LABEL_FADE_DELAY_MS, delayMillis = LABEL_FADE_DELAY_MS)),
+                        exit = fadeOut(tween(durationMillis = LABEL_FADE_OUT_MS)),
+                    ) {
+                        Text(
+                            text = "v$versionName",
+                            style = ShumTypography.bodySmall,
+                            color = AppOnSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+                        )
+                    }
+                }
             }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(1.dp)
+                    .background(AppSurfaceVariant),
+            )
         }
     }
 }

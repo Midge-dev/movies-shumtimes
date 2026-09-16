@@ -206,7 +206,9 @@ private fun AppRoot() {
     var watchlistItems by remember { mutableStateOf<List<PlexWatchlistItem>?>(null) }
     suspend fun refreshWatchlist() {
         val token = accountToken ?: return
-        watchlistItems = runCatching { PlexWatchlistApi(clientIdentifier).fetchWatchlist(token) }.getOrNull() ?: watchlistItems
+        watchlistItems = runCatching { PlexWatchlistApi(clientIdentifier).fetchWatchlist(token) }
+            .onFailure { android.util.Log.e("Watchlist", "fetchWatchlist failed", it) }
+            .getOrNull() ?: watchlistItems
     }
     fun isOnWatchlist(guid: String?): Boolean = guid != null && watchlistItems?.any { it.guid == guid } == true
     suspend fun toggleWatchlist(guid: String?) {
@@ -215,7 +217,7 @@ private fun AppRoot() {
         val api = PlexWatchlistApi(clientIdentifier)
         runCatching {
             if (isOnWatchlist(guid)) api.removeFromWatchlist(token, guid) else api.addToWatchlist(token, guid)
-        }
+        }.onFailure { android.util.Log.e("Watchlist", "toggle failed for guid=$guid", it) }
         refreshWatchlist()
     }
 
@@ -788,8 +790,8 @@ private fun AppRoot() {
                 movie = current.movie,
                 isShow = isShow,
                 onBack = { returnTo(current.returnState) },
-                isOnWatchlist = isOnWatchlist(current.movie.guid),
-                onToggleWatchlist = { scope.launch { toggleWatchlist(current.movie.guid) } },
+                isOnWatchlist = ::isOnWatchlist,
+                onToggleWatchlist = { guid -> scope.launch { toggleWatchlist(guid) } },
                 resolveNextEpisode = {
                     runCatching {
                         PlexServerApi(current.ctx.server, clientIdentifier).fetchNextEpisodeForShow(current.movie.ratingKey)
@@ -974,8 +976,11 @@ private fun AppRoot() {
                 showTitle = current.show.title,
                 episode = current.episode,
                 onBack = { returnTo(current.returnState) },
-                isOnWatchlist = isOnWatchlist(current.show.guid),
-                onToggleWatchlist = { scope.launch { toggleWatchlist(current.show.guid) } },
+                isOnWatchlist = ::isOnWatchlist,
+                onToggleWatchlist = { guid -> scope.launch { toggleWatchlist(guid) } },
+                loadShowGuid = {
+                    runCatching { PlexServerApi(current.ctx.server, clientIdentifier).fetchMovieDetail(current.show.ratingKey).guid }.getOrNull()
+                },
                 onPlay = {
                     scope.launch {
                         val fetched = runCatching {

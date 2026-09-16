@@ -225,7 +225,12 @@ fun LobbyScreen(
                             onStart(true)
                         },
                     ) {
-                        Icon(Icons.Filled.Replay, contentDescription = "Restart from the beginning", tint = AppWhite)
+                        Icon(
+                            Icons.Filled.Replay,
+                            contentDescription = "Restart from the beginning",
+                            tint = AppWhite,
+                            modifier = Modifier.size(22.dp),
+                        )
                     }
                 }
 

@@ -3,6 +3,7 @@ package com.moviesshumtimes.tv.ui.library
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,16 +41,24 @@ import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.WatchTogetherIcon
 import com.moviesshumtimes.tv.ui.common.WatchlistButton
 import com.moviesshumtimes.tv.ui.kit.Icon
+import com.moviesshumtimes.tv.ui.kit.ShumBorder
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumIconButton
 import com.moviesshumtimes.tv.ui.kit.ShumOutlinedButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
+import com.moviesshumtimes.tv.ui.theme.AppDimBorder
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 import com.moviesshumtimes.tv.ui.theme.AppWhite
+import com.moviesshumtimes.tv.ui.theme.NeonPurpleGradient
 import kotlinx.coroutines.flow.first
 
 private const val HERO_HEIGHT_DP = 420
+
+private val restartButtonBorder = ShumBorder(
+    idle = BorderStroke(2.dp, AppDimBorder),
+    focused = BorderStroke(2.dp, NeonPurpleGradient),
+)
 
 @Composable
 fun MovieDetailScreen(
@@ -61,8 +70,8 @@ fun MovieDetailScreen(
     onWatchTogether: (targetRatingKey: String) -> Unit,
     onRestartTogether: (targetRatingKey: String) -> Unit,
     onSeasons: () -> Unit,
-    isOnWatchlist: Boolean,
-    onToggleWatchlist: () -> Unit,
+    isOnWatchlist: (String?) -> Boolean,
+    onToggleWatchlist: (String?) -> Unit,
     resolveNextEpisode: suspend () -> PlexOnDeckItem?,
     loadDetail: suspend () -> PlexMovieDetail?,
     loadRelatedHubs: suspend () -> List<PlexHub>,
@@ -140,8 +149,8 @@ fun MovieDetailScreen(
                 onWatchTogether = { playTarget?.let(onWatchTogether) },
                 onRestartTogether = { playTarget?.let(onRestartTogether) },
                 onSeasons = onSeasons,
-                isOnWatchlist = isOnWatchlist,
-                onToggleWatchlist = onToggleWatchlist,
+                isOnWatchlist = isOnWatchlist(detail?.guid),
+                onToggleWatchlist = { onToggleWatchlist(detail?.guid) },
                 onActionButtonFocused = { heroFocusToken++ },
             )
         }
@@ -238,14 +247,6 @@ private fun MovieHero(
                     WatchTogetherIcon()
                     Text(watchTogetherLabel, modifier = Modifier.padding(start = 12.dp))
                 }
-                if (showRestart) {
-                    ShumIconButton(
-                        onClick = onRestartTogether,
-                        modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
-                    ) {
-                        Icon(Icons.Filled.Replay, contentDescription = "Restart together from the beginning", tint = AppWhite)
-                    }
-                }
                 WatchlistButton(
                     isOnWatchlist = isOnWatchlist,
                     onClick = onToggleWatchlist,
@@ -257,6 +258,15 @@ private fun MovieHero(
                         modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
                     ) {
                         Text("Seasons")
+                    }
+                }
+                if (showRestart) {
+                    ShumIconButton(
+                        onClick = onRestartTogether,
+                        border = restartButtonBorder,
+                        modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
+                    ) {
+                        Icon(Icons.Filled.Replay, contentDescription = "Restart together from the beginning", tint = AppWhite)
                     }
                 }
             }

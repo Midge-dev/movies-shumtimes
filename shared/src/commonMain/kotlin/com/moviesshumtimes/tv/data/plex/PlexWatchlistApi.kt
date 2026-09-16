@@ -34,7 +34,7 @@ class PlexWatchlistApi(private val clientIdentifier: String) {
     private fun discoverRatingKey(guid: String): String = guid.substringAfterLast('/')
 
     suspend fun fetchWatchlist(accountToken: String): List<PlexWatchlistItem> =
-        client.get("https://discover.provider.plex.tv/library/sections/watlist/all") {
+        client.get("https://discover.provider.plex.tv/library/sections/watchlist/all") {
             withPlexHeaders(accountToken)
         }.body<WatchlistResponse>().mediaContainer.items
 
