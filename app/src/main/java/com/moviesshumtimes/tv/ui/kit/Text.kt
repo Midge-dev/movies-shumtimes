@@ -1,6 +1,7 @@
 package com.moviesshumtimes.tv.ui.kit
 
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,6 +19,7 @@ fun Text(
     textAlign: TextAlign = TextAlign.Unspecified,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
+    autoSize: TextAutoSize? = null,
 ) {
     val contentColor = LocalContentColor.current
     val resolvedStyle = style.merge(
@@ -32,5 +34,6 @@ fun Text(
         style = resolvedStyle,
         maxLines = maxLines,
         overflow = overflow,
+        autoSize = autoSize,
     )
 }

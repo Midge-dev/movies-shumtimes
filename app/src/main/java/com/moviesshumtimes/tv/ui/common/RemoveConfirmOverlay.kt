@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -17,13 +20,14 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.moviesshumtimes.tv.ui.kit.ShumButton
 import com.moviesshumtimes.tv.ui.kit.ShumTypography
 import com.moviesshumtimes.tv.ui.kit.Text
 import com.moviesshumtimes.tv.ui.theme.AppScrim
 
 @Composable
-fun RemoveConfirmOverlay(message: String, onConfirm: () -> Unit, onCancel: () -> Unit) {
+fun RemoveConfirmOverlay(message: String, onConfirm: () -> Unit, onCancel: () -> Unit, compact: Boolean = false) {
     val removeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { removeFocus.requestFocus() } }
     Box(
@@ -34,15 +38,37 @@ fun RemoveConfirmOverlay(message: String, onConfirm: () -> Unit, onCancel: () ->
             .focusProperties { onExit = { cancelFocusChange() } },
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(message, textAlign = TextAlign.Center, style = ShumTypography.bodyLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                ShumButton(
-                    onClick = onConfirm,
-                    compact = true,
-                    modifier = Modifier.focusRequester(removeFocus),
-                ) { Text("Remove") }
-                ShumButton(onClick = onCancel, compact = true) { Text("Cancel") }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = if (compact) Modifier.padding(horizontal = 8.dp) else Modifier,
+        ) {
+            Text(
+                message,
+                textAlign = TextAlign.Center,
+                style = ShumTypography.bodyLarge,
+                modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
+                maxLines = if (compact) 3 else Int.MAX_VALUE,
+                autoSize = if (compact) TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = 16.sp) else null,
+            )
+            if (compact) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ShumButton(
+                        onClick = onConfirm,
+                        compact = true,
+                        modifier = Modifier.focusRequester(removeFocus),
+                    ) { Text("Remove") }
+                    ShumButton(onClick = onCancel, compact = true) { Text("Cancel") }
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ShumButton(
+                        onClick = onConfirm,
+                        compact = true,
+                        modifier = Modifier.focusRequester(removeFocus),
+                    ) { Text("Remove") }
+                    ShumButton(onClick = onCancel, compact = true) { Text("Cancel") }
+                }
             }
         }
     }

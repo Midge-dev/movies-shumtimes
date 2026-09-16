@@ -45,10 +45,10 @@ import com.moviesshumtimes.tv.sync.ChatMessage
 import com.moviesshumtimes.tv.sync.ConnectionState
 import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.RelayEvent
-import com.moviesshumtimes.tv.sync.relayHttpUrl
 import com.moviesshumtimes.tv.sync.toChatMessage
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
 import com.moviesshumtimes.tv.ui.common.QrCodeImage
+import com.moviesshumtimes.tv.ui.common.relayUrlToChatUrl
 import com.moviesshumtimes.tv.ui.common.RelayStatusDot
 import com.moviesshumtimes.tv.ui.common.RelayStatusLine
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
@@ -68,7 +68,6 @@ import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
-import java.net.URLEncoder
 
 private const val PRESENCE_INTERVAL_MS = 3_000L
 private const val ROSTER_STALE_MS = PRESENCE_INTERVAL_MS * 3
@@ -312,16 +311,6 @@ private fun ChatQrModal(relayUrl: String, roomId: String?, defaultName: String, 
         }
         }
     }
-}
-
-private fun relayUrlToChatUrl(relayUrl: String, roomId: String, defaultName: String): String? {
-    val parsed = relayHttpUrl(relayUrl) ?: return null
-    val params = buildList {
-        parsed.query?.let { add(it) }
-        add("room=$roomId")
-        if (defaultName.isNotBlank()) add("name=${URLEncoder.encode(defaultName, "UTF-8")}")
-    }
-    return "${parsed.base}/chat?${params.joinToString("&")}"
 }
 
 @Composable

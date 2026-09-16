@@ -220,6 +220,17 @@ private fun AppRoot() {
         }.onFailure { android.util.Log.e("Watchlist", "toggle failed for guid=$guid", it) }
         refreshWatchlist()
     }
+    fun removeFromWatchlist(entry: PlexWatchlistItem) {
+        watchlistItems = watchlistItems?.filterNot { it.ratingKey == entry.ratingKey }
+        val token = accountToken
+        val guid = entry.guid
+        if (token != null && guid != null) {
+            scope.launch {
+                runCatching { PlexWatchlistApi(clientIdentifier).removeFromWatchlist(token, guid) }
+                    .onFailure { android.util.Log.e("Watchlist", "remove failed for guid=$guid", it) }
+            }
+        }
+    }
 
     var relayIdentity by remember { mutableStateOf<RelayIdentity?>(null) }
     var relayClient by remember { mutableStateOf<RelayClient?>(null) }
@@ -549,6 +560,7 @@ private fun AppRoot() {
                 recentlyAdded = current.recentlyAdded,
                 recentActivity = current.recentActivity,
                 suggestions = current.suggestions,
+                watchlist = watchlistItems ?: emptyList(),
                 liveRooms = liveRooms,
                 myRoomId = relayClient?.roomId?.collectAsState()?.value,
                 hostedRoomIds = hostedRoomIds,
@@ -627,6 +639,28 @@ private fun AppRoot() {
                     }
                 },
                 onRemove = { item -> removeFromContinueWatching(current, item) },
+                onSelectWatchlistItem = { entry ->
+                    scope.launch {
+                        val guid = entry.guid
+                        val match = guid?.let {
+                            runCatching { PlexServerApi(current.server, clientIdentifier).fetchLibraryItemsByGuid(it) }
+                                .getOrNull()
+                                ?.firstOrNull()
+                        }
+                        if (match == null) {
+                            state = AppState.Error("\"${entry.title}\" isn't in your Plex library yet.")
+                            return@launch
+                        }
+                        val ctx = LibraryContext(
+                            current.server,
+                            current.sections,
+                            current.sections.firstOrNull { it.type == match.type } ?: current.sections.first(),
+                            emptyList(),
+                        )
+                        state = AppState.MovieDetail(ctx, match, returnState = current)
+                    }
+                },
+                onRemoveFromWatchlist = { entry -> removeFromWatchlist(entry) },
                 onSelectRecentlyAdded = { item ->
                     val parentRatingKey = item.parentRatingKey
                     val target = if (item.type == "season" && parentRatingKey != null) {
@@ -712,11 +746,6 @@ private fun AppRoot() {
                         state = AppState.CollectionDetail(current.ctx, collection, items, AppState.Library(current.ctx))
                     }
                 },
-                loadWatchlist = {
-                    if (watchlistItems == null) refreshWatchlist()
-                    watchlistItems ?: emptyList()
-                },
-                onToggleWatchlistItem = { entry -> toggleWatchlist(entry.guid) },
             )
         }
         is AppState.CollectionDetail -> AppNavigationDrawer(

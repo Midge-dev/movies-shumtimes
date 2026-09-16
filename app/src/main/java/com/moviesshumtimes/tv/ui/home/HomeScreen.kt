@@ -67,6 +67,7 @@ import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexOnDeckItem
 import com.moviesshumtimes.tv.data.plex.PlexServer
+import com.moviesshumtimes.tv.data.plex.PlexWatchlistItem
 import com.moviesshumtimes.tv.data.settings.RelayEntry
 import com.moviesshumtimes.tv.sync.RelayRoomSummary
 import com.moviesshumtimes.tv.ui.common.RemoveConfirmOverlay
@@ -95,6 +96,8 @@ private const val TYPE_EPISODE = "episode"
 
 private const val ROW_STAGGER_PERIOD = 6
 
+private const val WATCH_TOGETHER_FOCUS_QUIET_MS = 800L
+
 @Composable
 fun HomeScreen(
     server: PlexServer,
@@ -102,6 +105,7 @@ fun HomeScreen(
     recentlyAdded: List<PlexLibraryItem>,
     recentActivity: List<PlexOnDeckItem>,
     suggestions: List<PlexOnDeckItem>,
+    watchlist: List<PlexWatchlistItem>,
     liveRooms: List<MergedRoom>,
     myRoomId: String?,
     hostedRoomIds: Set<String>,
@@ -109,22 +113,32 @@ fun HomeScreen(
     onSelectRoom: (MergedRoom) -> Unit,
     onResume: (PlexOnDeckItem) -> Unit,
     onRemove: (PlexOnDeckItem) -> Unit,
+    onSelectWatchlistItem: (PlexWatchlistItem) -> Unit,
+    onRemoveFromWatchlist: (PlexWatchlistItem) -> Unit,
     onSelectRecentlyAdded: (PlexLibraryItem) -> Unit,
     onSelectRecentActivity: (PlexOnDeckItem) -> Unit,
     onSelectSuggestion: (PlexOnDeckItem) -> Unit,
 ) {
     val firstItemFocus = remember { FocusRequester() }
     val watchTogetherGetsFocus = liveRooms.isNotEmpty()
-    val continueWatchingGetsFocus = !watchTogetherGetsFocus && onDeck.isNotEmpty()
+    val watchlistGetsFocus = !watchTogetherGetsFocus && watchlist.isNotEmpty()
+    val continueWatchingGetsFocus = !watchTogetherGetsFocus && !watchlistGetsFocus && onDeck.isNotEmpty()
     val recentActivityGetsFocus =
-        !watchTogetherGetsFocus && !continueWatchingGetsFocus && recentActivity.isNotEmpty()
-    val recentlyAddedGetsFocus =
-        !watchTogetherGetsFocus && !continueWatchingGetsFocus && !recentActivityGetsFocus && recentlyAdded.isNotEmpty()
-    val suggestionsGetsFocus = !watchTogetherGetsFocus && !continueWatchingGetsFocus &&
+        !watchTogetherGetsFocus && !watchlistGetsFocus && !continueWatchingGetsFocus && recentActivity.isNotEmpty()
+    val recentlyAddedGetsFocus = !watchTogetherGetsFocus && !watchlistGetsFocus && !continueWatchingGetsFocus &&
+        !recentActivityGetsFocus && recentlyAdded.isNotEmpty()
+    val suggestionsGetsFocus = !watchTogetherGetsFocus && !watchlistGetsFocus && !continueWatchingGetsFocus &&
         !recentActivityGetsFocus && !recentlyAddedGetsFocus && suggestions.isNotEmpty()
     val homeListState = rememberLazyListState()
-    LaunchedEffect(watchTogetherGetsFocus, onDeck, recentActivity, recentlyAdded, suggestions) {
+    var lastInputAtMs by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(watchTogetherGetsFocus) {
         if (watchTogetherGetsFocus) {
+            while (true) {
+                val elapsed = System.currentTimeMillis() - lastInputAtMs
+                if (elapsed >= WATCH_TOGETHER_FOCUS_QUIET_MS) break
+                delay(WATCH_TOGETHER_FOCUS_QUIET_MS - elapsed)
+            }
             runCatching { homeListState.animateScrollToItem(0) }
         }
         repeat(5) {
@@ -133,9 +147,27 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(watchlist, onDeck, recentActivity, recentlyAdded, suggestions) {
+        if (watchTogetherGetsFocus) return@LaunchedEffect
+        repeat(5) {
+            if (runCatching { firstItemFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            withFrameNanos {}
+        }
+    }
+
+    val watchTogetherRowFirstFocus = remember { FocusRequester() }
+    val watchlistRowFirstFocus = remember { FocusRequester() }
+    val continueWatchingRowFirstFocus = remember { FocusRequester() }
+    ReclaimFocusOnRemoval(liveRooms.size, watchTogetherRowFirstFocus)
+    ReclaimFocusOnRemoval(watchlist.size, watchlistRowFirstFocus)
+    ReclaimFocusOnRemoval(onDeck.size, continueWatchingRowFirstFocus)
+
     LazyColumn(
         state = homeListState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().onPreviewKeyEvent {
+            lastInputAtMs = System.currentTimeMillis()
+            false
+        },
         contentPadding = PaddingValues(bottom = 48.dp),
     ) {
         item {
@@ -147,7 +179,27 @@ fun HomeScreen(
                 onEndSession = onEndSession,
                 onSelectRoom = onSelectRoom,
                 firstCardFocusRequester = if (watchTogetherGetsFocus) firstItemFocus else null,
+                rowAnchorFocusRequester = watchTogetherRowFirstFocus,
             )
+        }
+
+        item {
+            HomeRow(
+                title = "Watchlist",
+                items = watchlist.sortedByDescending { it.addedAt ?: 0L },
+                key = { it.ratingKey },
+            ) { entry, index ->
+                WatchlistPoster(
+                    server = server,
+                    entry = entry,
+                    onClick = { onSelectWatchlistItem(entry) },
+                    onRemove = { onRemoveFromWatchlist(entry) },
+                    modifier = Modifier
+                        .then(if (index == 0) Modifier.focusRequester(watchlistRowFirstFocus) else Modifier)
+                        .then(if (index == 0 && watchlistGetsFocus) Modifier.focusRequester(firstItemFocus) else Modifier),
+                    staggerDelayMs = (index % ROW_STAGGER_PERIOD) * 120,
+                )
+            }
         }
 
         item {
@@ -173,11 +225,15 @@ fun HomeScreen(
                             item = item,
                             onResume = { onResume(item) },
                             onRemove = { onRemove(item) },
-                            modifier = if (index == 0 && continueWatchingGetsFocus) {
-                                Modifier.focusRequester(firstItemFocus)
-                            } else {
-                                Modifier
-                            },
+                            modifier = Modifier
+                                .then(if (index == 0) Modifier.focusRequester(continueWatchingRowFirstFocus) else Modifier)
+                                .then(
+                                    if (index == 0 && continueWatchingGetsFocus) {
+                                        Modifier.focusRequester(firstItemFocus)
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
                             staggerDelayMs = (index % ROW_STAGGER_PERIOD) * 120,
                         )
                     }
@@ -224,6 +280,21 @@ fun HomeScreen(
 }
 
 @Composable
+private fun ReclaimFocusOnRemoval(size: Int, focusRequester: FocusRequester) {
+    var previousSize by remember { mutableStateOf(size) }
+    LaunchedEffect(size) {
+        val wasRemoved = size < previousSize
+        previousSize = size
+        if (wasRemoved && size > 0) {
+            repeat(5) {
+                if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+                withFrameNanos {}
+            }
+        }
+    }
+}
+
+@Composable
 private fun <T> HomeRow(
     title: String,
     items: List<T>,
@@ -258,6 +329,7 @@ private fun WatchTogetherRow(
     onEndSession: suspend (MergedRoom) -> Boolean,
     onSelectRoom: (MergedRoom) -> Unit,
     firstCardFocusRequester: FocusRequester?,
+    rowAnchorFocusRequester: FocusRequester,
 ) {
     if (rooms.isEmpty()) return
     val listState = rememberLazyListState()
@@ -292,6 +364,7 @@ private fun WatchTogetherRow(
                     onClick = { onSelectRoom(merged) },
                     onEndSession = onEndSession,
                     joinFocusRequester = if (index == 0) firstCardFocusRequester else null,
+                    rowAnchorFocusRequester = if (index == 0) rowAnchorFocusRequester else null,
                 )
             }
             if (rooms.size > VISIBLE_ROOM_CARDS) {
@@ -316,6 +389,7 @@ private fun RoomCard(
     onEndSession: suspend (MergedRoom) -> Boolean,
     modifier: Modifier = Modifier,
     joinFocusRequester: FocusRequester? = null,
+    rowAnchorFocusRequester: FocusRequester? = null,
 ) {
     val room = merged.room
     val scope = rememberCoroutineScope()
@@ -438,9 +512,9 @@ private fun RoomCard(
                         onClick = onClick,
                         enabled = !full,
                         compact = true,
-                        modifier = blockUpEscape.let {
-                            if (joinFocusRequester != null) it.focusRequester(joinFocusRequester) else it
-                        },
+                        modifier = blockUpEscape
+                            .let { if (joinFocusRequester != null) it.focusRequester(joinFocusRequester) else it }
+                            .let { if (rowAnchorFocusRequester != null) it.focusRequester(rowAnchorFocusRequester) else it },
                     ) { Text(joinLabel) }
                     if (isHosted) {
                         ShumOutlinedButton(onClick = { endNow() }, compact = true, modifier = blockUpEscape) { Text("End session") }
@@ -558,6 +632,111 @@ private fun SuggestionPoster(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+private fun WatchlistPoster(
+    server: PlexServer,
+    entry: PlexWatchlistItem,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+    staggerDelayMs: Int = 0,
+) {
+    var confirmingRemove by remember(entry.ratingKey) { mutableStateOf(false) }
+    var confirmArmed by remember(entry.ratingKey) { mutableStateOf(false) }
+    var hasBeenFocusedSinceConfirm by remember(entry.ratingKey) { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
+    val cardFocusRequester = remember(entry.ratingKey) { FocusRequester() }
+
+    fun closeConfirm() {
+        confirmingRemove = false
+        runCatching { cardFocusRequester.requestFocus() }
+    }
+
+    BackHandler(enabled = confirmingRemove) { closeConfirm() }
+
+    ShumCardContainer(
+        modifier = Modifier.width(160.dp),
+        imageCard = { interactionSource ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .then(
+                        if (focused) {
+                            Modifier.border(BorderStroke(2.dp, NeonPurpleGradient), RoundedCornerShape(8.dp))
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .focusGroup()
+                    .onFocusChanged { state ->
+                        focused = state.isFocused
+                        if (confirmingRemove) {
+                            if (state.hasFocus) {
+                                hasBeenFocusedSinceConfirm = true
+                            } else if (hasBeenFocusedSinceConfirm) {
+                                confirmingRemove = false
+                            }
+                        }
+                    }
+                    .onPreviewKeyEvent { keyEvent ->
+                        if (confirmingRemove && !confirmArmed) {
+                            val isSelect = keyEvent.key == Key.DirectionCenter || keyEvent.key == Key.Enter
+                            if (isSelect) {
+                                if (keyEvent.type == KeyEventType.KeyUp) confirmArmed = true
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    },
+            ) {
+                ShumArtwork(
+                    model = PlexImageUrl.of(server, entry.thumb),
+                    contentDescription = entry.title,
+                    modifier = Modifier.fillMaxSize(),
+                    staggerDelayMs = staggerDelayMs,
+                )
+                Box(
+                    modifier = modifier
+                        .focusRequester(cardFocusRequester)
+                        .matchParentSize()
+                        .combinedClickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = { if (!confirmingRemove) onClick() },
+                            onLongClick = {
+                                confirmArmed = false
+                                hasBeenFocusedSinceConfirm = false
+                                confirmingRemove = true
+                            },
+                        ),
+                )
+                if (confirmingRemove) {
+                    RemoveConfirmOverlay(
+                        message = "Remove ${entry.title} from your watchlist?",
+                        onConfirm = { confirmingRemove = false; onRemove() },
+                        onCancel = { closeConfirm() },
+                        compact = true,
+                    )
+                }
+            }
+        },
+        title = {
+            Text(
+                text = entry.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+        },
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun ContinueWatchingPoster(
     server: PlexServer,
     item: PlexOnDeckItem,
@@ -570,8 +749,14 @@ private fun ContinueWatchingPoster(
     var confirmArmed by remember(item.ratingKey) { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
     var hasBeenFocusedSinceConfirm by remember(item.ratingKey) { mutableStateOf(false) }
+    val cardFocusRequester = remember(item.ratingKey) { FocusRequester() }
 
-    BackHandler(enabled = confirmingRemove) { confirmingRemove = false }
+    fun closeConfirm() {
+        confirmingRemove = false
+        runCatching { cardFocusRequester.requestFocus() }
+    }
+
+    BackHandler(enabled = confirmingRemove) { closeConfirm() }
 
     val scale by animateFloatAsState(
         targetValue = if (focused) 1.04f else 1f,
@@ -583,7 +768,7 @@ private fun ContinueWatchingPoster(
         modifier = Modifier.width(240.dp),
         imageCard = { interactionSource ->
             Box(
-                modifier = modifier
+                modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .zIndex(if (focused) 1f else 0f)
@@ -624,58 +809,58 @@ private fun ContinueWatchingPoster(
                         }
                     },
             ) {
+                ShumArtwork(
+                    model = PlexImageUrl.of(server, item.thumb),
+                    contentDescription = item.title,
+                    modifier = Modifier.fillMaxSize(),
+                    staggerDelayMs = staggerDelayMs,
+                )
+                if (focused && !confirmingRemove) {
+                    Text(
+                        text = formatTimecode(item.viewOffset ?: 0L),
+                        color = AppWhite,
+                        style = ShumTypography.bodySmall,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 8.dp, end = 6.dp)
+                            .background(AppScrim.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(AppScrim.copy(alpha = 0.4f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progressFraction(item))
+                            .background(NeonPurpleProgressGradient),
+                    )
+                }
+                Box(
+                    modifier = modifier
+                        .focusRequester(cardFocusRequester)
+                        .matchParentSize()
+                        .combinedClickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = { if (!confirmingRemove) onResume() },
+                            onLongClick = {
+                                confirmArmed = false
+                                hasBeenFocusedSinceConfirm = false
+                                confirmingRemove = true
+                            },
+                        ),
+                )
                 if (confirmingRemove) {
                     RemoveConfirmOverlay(
                         message = "Remove from Continue Watching?",
                         onConfirm = { confirmingRemove = false; onRemove() },
-                        onCancel = { confirmingRemove = false },
-                    )
-                } else {
-                    ShumArtwork(
-                        model = PlexImageUrl.of(server, item.thumb),
-                        contentDescription = item.title,
-                        modifier = Modifier.fillMaxSize(),
-                        staggerDelayMs = staggerDelayMs,
-                    )
-                    if (focused) {
-                        Text(
-                            text = formatTimecode(item.viewOffset ?: 0L),
-                            color = AppWhite,
-                            style = ShumTypography.bodySmall,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(bottom = 8.dp, end = 6.dp)
-                                .background(AppScrim.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .background(AppScrim.copy(alpha = 0.4f)),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(progressFraction(item))
-                                .background(NeonPurpleProgressGradient),
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .combinedClickable(
-                                interactionSource = interactionSource,
-                                indication = null,
-                                onClick = onResume,
-                                onLongClick = {
-                                    confirmArmed = false
-                                    hasBeenFocusedSinceConfirm = false
-                                    confirmingRemove = true
-                                },
-                            ),
+                        onCancel = { closeConfirm() },
                     )
                 }
             }

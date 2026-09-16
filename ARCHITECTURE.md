@@ -240,9 +240,10 @@ this session:
 
 - `HomeScreen`'s `RoomCard` action row (`up = FocusRequester.Cancel`, since
   there's nothing focusable above it to search into).
-- `ContinueWatchingPoster`'s `RemoveConfirmOverlay`
+- `ContinueWatchingPoster`'s and `WatchlistPoster`'s `RemoveConfirmOverlay`
   (`focusProperties { onExit = { cancelFocusChange() } }`, trapping any
-  outgoing focus search while the overlay is up).
+  outgoing focus search while the overlay is up) — but that trap alone
+  wasn't sufficient (see below).
 - Settings' Maximum-seats menu (`LaunchedEffect(maxSeatsMenuExpanded)`
   explicitly restores focus to the row that opened it, on close).
 - The phone-pairing QR flow's Cancel button, in **both** `SettingsScreen`
@@ -314,30 +315,78 @@ uncontested instead.
 
 ### Home
 
-Three stacked `LazyRow`s inside one `LazyColumn` (Watch Together, Continue
-Watching, Recently Added, Suggestions) — a plain `Column` was tried first and
-felt "static," since nothing scrolled and no off-screen focus target could
-be brought into view once a row scrolled past the bottom edge. Room polling
-(§6.2) refreshes every 5 seconds independent of scroll position, so a room
-can appear while the user is scrolled down elsewhere; a dedicated
-`LaunchedEffect` keyed on a derived `watchTogetherGetsFocus` boolean (not the
-raw `liveRooms` list, which gets a new instance on every poll tick even when
-nothing changed) drives an explicit `animateScrollToItem(0)` for that case.
+Six stacked rows inside one `LazyColumn`, in priority order: Watch Together,
+Watchlist, Continue Watching, Recently Finished Watching, Recently Added,
+Suggestions — a plain `Column` was tried first and felt "static," since
+nothing scrolled and no off-screen focus target could be brought into view
+once a row scrolled past the bottom edge. Watch Together and Watchlist
+self-hide entirely (render nothing) when empty, same as `HomeRow`'s generic
+empty-list guard used by the other four. Room polling (§6.2) refreshes every
+5 seconds independent of scroll position, so a room can appear while the
+user is scrolled down elsewhere; a dedicated `LaunchedEffect` keyed on a
+derived `watchTogetherGetsFocus` boolean (not the raw `liveRooms` list,
+which gets a new instance on every poll tick even when nothing changed)
+waits for a short quiet-input window (so it never yanks focus out from under
+active D-pad navigation) and then drives an explicit `animateScrollToItem(0)`
+plus a focus-steal onto the first room card. Every other row-content list
+change (watchlist mutated, `onDeck` mutated, a room removed) is deliberately
+kept out of that same effect's key list — an earlier version folded them all
+into one `LaunchedEffect`, so any Watchlist removal while a room was live
+re-ran the *whole* effect, including the quiet-wait-then-scroll-to-Watch-Together
+dance, even though nothing about Watch Together had changed.
 
-Continue Watching's long-press-to-remove needed several small fixes to feel
-reliable on a real remote. The physical button that triggers a long press is
-usually still held down right when the confirm overlay appears — its
-eventual release lands on whichever button the overlay just focused, and
-without a guard that stray release reads as a real click before the user
-ever chose anything. `confirmArmed` solves this by swallowing the *exact*
-trailing release tied to the gesture that opened the overlay (a time-based
-debounce doesn't work, since hold duration varies), caught via
-`onPreviewKeyEvent` so it's seen before Remove/Cancel's own clickable can
-treat it as a click. Separately, swapping to the confirm overlay destroys
-the previously-focused element for one frame before the overlay's own
-`LaunchedEffect` can move focus onto its Remove button — `hasBeenFocusedSinceConfirm`
-guards against that transient no-focus frame being misread as "focus left
-the card and the user backed out."
+Continue Watching's, Watchlist's, and `RoomCard`'s long-press/click-triggered
+remove flows needed several small fixes to feel reliable on a real remote.
+The physical button that triggers a long press is usually still held down
+right when the confirm overlay appears — its eventual release lands on
+whichever button the overlay just focused, and without a guard that stray
+release reads as a real click before the user ever chose anything.
+`confirmArmed` solves this by swallowing the *exact* trailing release tied
+to the gesture that opened the overlay (a time-based debounce doesn't work,
+since hold duration varies), caught via `onPreviewKeyEvent` so it's seen
+before Remove/Cancel's own clickable can treat it as a click.
+
+A second, larger issue turned out to share one root cause across all three
+cards: `AppNavigationDrawer`'s rail width is driven by a bare
+`onFocusChanged { expanded = it.hasFocus }` on its own Column — it reacts to
+*any* focus landing anywhere in that subtree, even for a single frame.
+`RoomCard` is similarly hair-triggered (it calls
+`bringIntoViewRequester.bringIntoView()` on its own `onFocusChanged`). The
+original `WatchlistPoster`/`ContinueWatchingPoster` swapped `if
+(confirmingRemove) RemoveConfirmOverlay(...) else { artwork + clickable Box
+}` — but the clickable Box, not the outer wrapping Box, was the actual focus
+target, so flipping `confirmingRemove` disposed the currently-focused node
+for one frame on *both* open and close. Compose's default focus search fills
+that gap with whatever's nearest before any of the app's own reactive
+refocus code gets a chance to run — landing on the nav rail (which then
+flickers open) or, if a Watch Together room happened to be live, on its
+`RoomCard` (which then auto-scrolls into view). `hasBeenFocusedSinceConfirm`
+predates this fix and guards a related but narrower case (a transient
+no-focus frame being misread as "the user backed out"); it did not prevent
+the rail/RoomCard flicker on its own. The fix: never let an `if`/`else`
+content swap remove the currently-focused interactive element. The
+clickable artwork surface (and, for `RoomCard`, its action row) now stays
+mounted continuously; `RemoveConfirmOverlay` layers on top of it instead of
+replacing it, and every `FocusRequester` — both the externally-supplied
+"give this initial focus" one and each card's own internal
+"restore-focus-here-on-cancel" one — is attached to that same
+always-present focusable leaf, never to the outer `.focusGroup()`-only
+wrapper (which isn't itself a valid `requestFocus()` target).
+
+Actually *removing* a row item (Remove, or `RoomCard`'s End session) is a
+real data change, not just a same-item state toggle, so the "keep it
+mounted" trick doesn't apply — the item's composable legitimately goes away.
+Each removable row instead keeps its own always-attached index-0
+`FocusRequester`, independent of which row the home screen's overall
+initial-focus priority chain currently favors, and a small
+`LaunchedEffect` per row watches that row's item *count* (not the list
+reference, which can change on unrelated refreshes/polls) and re-requests
+that anchor focus only when the count just decreased and the row is still
+non-empty — landing focus back inside the row instead of wherever Compose's
+disposal search would otherwise send it. When a row empties out completely
+instead (e.g. the last Watch Together room ends), the home-level priority
+booleans recompute reactively and the top-level `firstItemFocus` effect
+picks up the newly-promoted row on its own.
 
 `RoomCard` (design spec §11) is one unified 300dp card for every room,
 hosted or not — an earlier draft put hosted rooms in their own strip with

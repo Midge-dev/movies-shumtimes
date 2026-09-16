@@ -1,10 +1,8 @@
 package com.moviesshumtimes.tv.ui.library
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,8 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed as lazyRowItemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -31,7 +27,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,14 +34,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,10 +47,8 @@ import com.moviesshumtimes.tv.data.plex.PlexImageUrl
 import com.moviesshumtimes.tv.data.plex.PlexLibraryItem
 import com.moviesshumtimes.tv.data.plex.PlexSection
 import com.moviesshumtimes.tv.data.plex.PlexServer
-import com.moviesshumtimes.tv.data.plex.PlexWatchlistItem
 import com.moviesshumtimes.tv.ui.common.LoadingScreen
 import com.moviesshumtimes.tv.ui.common.NeonScrollbar
-import com.moviesshumtimes.tv.ui.common.RemoveConfirmOverlay
 import com.moviesshumtimes.tv.ui.common.ShumArtwork
 import com.moviesshumtimes.tv.ui.common.onDpadLongPress
 import com.moviesshumtimes.tv.ui.kit.FocusableSurface
@@ -79,7 +68,6 @@ import com.moviesshumtimes.tv.ui.theme.AppWhite
 import com.moviesshumtimes.tv.ui.theme.NeonPurple
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGlow
 import com.moviesshumtimes.tv.ui.theme.NeonPurpleGradient
-import kotlinx.coroutines.launch
 
 private const val GRID_COLUMNS = 5
 
@@ -87,7 +75,6 @@ private enum class BrowseTab(val label: String) {
     ALL("All"),
     GENRE("Genres"),
     COLLECTIONS("Collections"),
-    WATCHLIST("Watchlist"),
     SEARCH("Search"),
 }
 
@@ -99,22 +86,13 @@ fun LibraryScreen(
     onSelectItem: (PlexLibraryItem) -> Unit,
     loadCollections: suspend () -> List<PlexCollection>,
     onSelectCollection: (PlexCollection) -> Unit,
-    loadWatchlist: suspend () -> List<PlexWatchlistItem>,
-    onToggleWatchlistItem: suspend (PlexWatchlistItem) -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-
     var genreFilter by remember(selectedSection.key) { mutableStateOf<String?>(null) }
     var decadeFilter by remember(selectedSection.key) { mutableStateOf<Int?>(null) }
     var dateAddedFilter by remember(selectedSection.key) { mutableStateOf<DateAddedBucket?>(null) }
     var browseTab by remember(selectedSection.key) { mutableStateOf(BrowseTab.ALL) }
     var collections by remember(selectedSection.key) { mutableStateOf<List<PlexCollection>?>(null) }
-    var watchlist by remember(selectedSection.key) { mutableStateOf<List<PlexWatchlistItem>?>(null) }
     var searchQuery by remember(selectedSection.key) { mutableStateOf("") }
-
-    suspend fun refreshWatchlist() {
-        watchlist = runCatching { loadWatchlist() }.getOrDefault(emptyList())
-    }
 
     val availableGenres = remember(items) { items.flatMap { item -> item.genres.map { it.tag } }.distinct().sorted() }
     val availableDecades = remember(items) { items.mapNotNull { decadeOf(it) }.distinct().sortedDescending() }
@@ -129,19 +107,14 @@ fun LibraryScreen(
         if (browseTab == BrowseTab.COLLECTIONS && collections == null) {
             collections = runCatching { loadCollections() }.getOrDefault(emptyList())
         }
-        if (browseTab == BrowseTab.WATCHLIST && watchlist == null) {
-            refreshWatchlist()
-        }
     }
 
     val allTabFocus = remember { FocusRequester() }
     val genreTabFocus = remember { FocusRequester() }
     val collectionsTabFocus = remember { FocusRequester() }
-    val watchlistTabFocus = remember { FocusRequester() }
     val searchTabFocus = remember { FocusRequester() }
     val firstAllItemFocus = remember { FocusRequester() }
     val firstCollectionCardFocus = remember { FocusRequester() }
-    val firstWatchlistCardFocus = remember { FocusRequester() }
     val firstGenreResultFocus = remember { FocusRequester() }
     val clearAllFocus = remember { FocusRequester() }
     val genreFocuses = remember(availableGenres) { availableGenres.associateWith { FocusRequester() } }
@@ -153,7 +126,6 @@ fun LibraryScreen(
         BrowseTab.ALL to allTabFocus,
         BrowseTab.GENRE to genreTabFocus,
         BrowseTab.COLLECTIONS to collectionsTabFocus,
-        BrowseTab.WATCHLIST to watchlistTabFocus,
         BrowseTab.SEARCH to searchTabFocus,
     )
 
@@ -170,7 +142,6 @@ fun LibraryScreen(
         BrowseTab.ALL -> if (items.isEmpty()) FocusRequester.Cancel else firstAllItemFocus
         BrowseTab.GENRE -> firstGenrePanelFocus
         BrowseTab.COLLECTIONS -> if (collections.isNullOrEmpty()) FocusRequester.Cancel else firstCollectionCardFocus
-        BrowseTab.WATCHLIST -> if (watchlist.isNullOrEmpty()) FocusRequester.Cancel else firstWatchlistCardFocus
         BrowseTab.SEARCH -> firstSearchKeyFocus
     }
 
@@ -307,55 +278,6 @@ fun LibraryScreen(
                                     onClick = { onSelectCollection(collection) },
                                     modifier = if (index == 0) Modifier.focusRequester(firstCollectionCardFocus) else Modifier,
                                 )
-                            }
-                        }
-                    }
-                }
-            }
-
-            BrowseTab.WATCHLIST -> {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                    val loadedWatchlist = watchlist
-                    when {
-                        loadedWatchlist == null -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            LoadingScreen("Loading watchlist…")
-                        }
-                        loadedWatchlist.isEmpty() -> Text("Your watchlist is empty", modifier = Modifier.padding(32.dp))
-                        else -> {
-                            val moviesRow = loadedWatchlist.filter { it.type == "movie" }.sortedByDescending { it.addedAt ?: 0L }
-                            val showsRow = loadedWatchlist.filter { it.type == "show" }.sortedByDescending { it.addedAt ?: 0L }
-                            Column(
-                                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-                                verticalArrangement = Arrangement.spacedBy(36.dp),
-                            ) {
-                                if (moviesRow.isNotEmpty()) {
-                                    WatchlistRow(
-                                        server = server,
-                                        title = "Movies",
-                                        row = moviesRow,
-                                        firstCardFocus = firstWatchlistCardFocus,
-                                        onRemove = { entry ->
-                                            scope.launch {
-                                                runCatching { onToggleWatchlistItem(entry) }
-                                                refreshWatchlist()
-                                            }
-                                        },
-                                    )
-                                }
-                                if (showsRow.isNotEmpty()) {
-                                    WatchlistRow(
-                                        server = server,
-                                        title = "Shows",
-                                        row = showsRow,
-                                        firstCardFocus = if (moviesRow.isEmpty()) firstWatchlistCardFocus else null,
-                                        onRemove = { entry ->
-                                            scope.launch {
-                                                runCatching { onToggleWatchlistItem(entry) }
-                                                refreshWatchlist()
-                                            }
-                                        },
-                                    )
-                                }
                             }
                         }
                     }
@@ -703,132 +625,6 @@ private fun CollectionCard(
                         color = AppOnSurfaceVariant,
                     )
                 }
-            }
-        },
-    )
-}
-
-@Composable
-private fun WatchlistRow(
-    server: PlexServer,
-    title: String,
-    row: List<PlexWatchlistItem>,
-    firstCardFocus: FocusRequester?,
-    onRemove: (PlexWatchlistItem) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.Bottom,
-            modifier = Modifier.padding(start = 32.dp),
-        ) {
-            Text(title, style = ShumTypography.titleMedium)
-            Text("${row.size}", color = AppOnSurfaceVariant)
-        }
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-        ) {
-            lazyRowItemsIndexed(row, key = { _, entry -> entry.ratingKey }) { index, entry ->
-                WatchlistPoster(
-                    server = server,
-                    entry = entry,
-                    onRemove = { onRemove(entry) },
-                    modifier = if (index == 0 && firstCardFocus != null) Modifier.focusRequester(firstCardFocus) else Modifier,
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun WatchlistPoster(
-    server: PlexServer,
-    entry: PlexWatchlistItem,
-    onRemove: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var confirmingRemove by remember(entry.ratingKey) { mutableStateOf(false) }
-    var confirmArmed by remember(entry.ratingKey) { mutableStateOf(false) }
-    var hasBeenFocusedSinceConfirm by remember(entry.ratingKey) { mutableStateOf(false) }
-    var focused by remember { mutableStateOf(false) }
-
-    ShumCardContainer(
-        modifier = modifier.width(160.dp),
-        imageCard = { interactionSource ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(AppSurfaceVariant)
-                    .then(
-                        if (focused) {
-                            Modifier.border(BorderStroke(2.dp, NeonPurpleGradient), RoundedCornerShape(8.dp))
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .focusGroup()
-                    .onFocusChanged { state ->
-                        focused = state.isFocused
-                        if (confirmingRemove) {
-                            if (state.hasFocus) {
-                                hasBeenFocusedSinceConfirm = true
-                            } else if (hasBeenFocusedSinceConfirm) {
-                                confirmingRemove = false
-                            }
-                        }
-                    }
-                    .onPreviewKeyEvent { keyEvent ->
-                        if (confirmingRemove && !confirmArmed) {
-                            val isSelect = keyEvent.key == Key.DirectionCenter || keyEvent.key == Key.Enter
-                            if (isSelect) {
-                                if (keyEvent.type == KeyEventType.KeyUp) confirmArmed = true
-                                true
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    },
-            ) {
-                if (confirmingRemove) {
-                    RemoveConfirmOverlay(
-                        message = "Remove ${entry.title} from your watchlist?",
-                        onConfirm = { confirmingRemove = false; onRemove() },
-                        onCancel = { confirmingRemove = false },
-                    )
-                } else {
-                    ShumArtwork(
-                        model = PlexImageUrl.of(server, entry.thumb),
-                        contentDescription = entry.title,
-                        modifier = Modifier.fillMaxSize(),
-                        noiseOpacity = 0.4f,
-                    )
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .combinedClickable(
-                                interactionSource = interactionSource,
-                                indication = null,
-                                onClick = {},
-                                onLongClick = {
-                                    confirmArmed = false
-                                    hasBeenFocusedSinceConfirm = false
-                                    confirmingRemove = true
-                                },
-                            ),
-                    )
-                }
-            }
-        },
-        title = {
-            Column(modifier = Modifier.padding(top = 16.dp)) {
-                Text(text = entry.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                entry.year?.let { Text(it.toString(), color = AppOnSurfaceVariant) }
             }
         },
     )

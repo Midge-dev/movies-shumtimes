@@ -5,6 +5,7 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.put
+import io.ktor.http.encodeURLQueryComponent
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -108,6 +109,10 @@ class PlexServerApi(private val server: PlexServer, private val clientIdentifier
 
     suspend fun fetchLibraryItemsByActor(sectionKey: String, actorId: Long): List<PlexLibraryItem> =
         get<LibraryItemsResponse>("${server.baseUrl}/library/sections/$sectionKey/all?actor=$actorId").mediaContainer.items
+
+    /** Resolves a Discover-universe guid (`plex://movie/<id>`) to this server's local library item(s), if it's in the library. */
+    suspend fun fetchLibraryItemsByGuid(guid: String): List<PlexLibraryItem> =
+        get<LibraryItemsResponse>("${server.baseUrl}/library/all?guid=${guid.encodeURLQueryComponent()}").mediaContainer.items
 
     suspend fun fetchOnDeck(): List<PlexOnDeckItem> =
         get<OnDeckResponse>("${server.baseUrl}/library/onDeck").mediaContainer.items

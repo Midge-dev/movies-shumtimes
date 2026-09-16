@@ -13,10 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
@@ -35,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -73,7 +77,9 @@ import com.moviesshumtimes.tv.sync.RelayClient
 import com.moviesshumtimes.tv.sync.SyncViewModel
 import com.moviesshumtimes.tv.ui.common.AppLoadingIndicator
 import com.moviesshumtimes.tv.ui.common.ChatOverlay
+import com.moviesshumtimes.tv.ui.common.QrCodeImage
 import com.moviesshumtimes.tv.ui.common.formatTimecode
+import com.moviesshumtimes.tv.ui.common.relayUrlToChatUrl
 import com.moviesshumtimes.tv.ui.kit.Icon
 import com.moviesshumtimes.tv.ui.kit.ShumIconButton
 import com.moviesshumtimes.tv.ui.kit.ShumListItem
@@ -94,6 +100,7 @@ private const val REPORT_INTERVAL_MS = 5_000L
 private const val CONTROLS_HIDE_DELAY_MS = 3_000L
 private const val PROGRESS_POLL_INTERVAL_MS = 200L
 private const val SKIP_INCREMENT_MS = 10_000L
+private const val CHAT_QR_DISPLAY_MS = 30_000L
 
 private fun seekIncrementForHold(repeatCount: Int): Long = when {
     repeatCount == 0 -> 10_000L
@@ -215,6 +222,13 @@ private fun PlayerSession(
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var subtitleMenuOpen by remember { mutableStateOf(false) }
     var bitrateMenuOpen by remember { mutableStateOf(false) }
+    var chatQrOpen by remember { mutableStateOf(false) }
+    val roomId = relay?.roomId?.collectAsState()?.value
+    val chatUrl = remember(relay, roomId) {
+        val activeRelay = relay
+        val activeRoomId = roomId
+        if (activeRelay != null && activeRoomId != null) relayUrlToChatUrl(activeRelay.relayUrl, activeRoomId, "") else null
+    }
     var pendingPlayPauseFocus by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableStateOf(0) }
     var seekBar by remember { mutableStateOf<DefaultTimeBar?>(null) }
@@ -442,6 +456,8 @@ private fun PlayerSession(
                     controlsVisible = false
                     bitrateMenuOpen = true
                 },
+                chatAvailable = chatUrl != null,
+                onOpenChatQr = { chatQrOpen = true },
                 onSeekBar = { seekBar = it },
                 onSeekKey = { keyCode, repeatCount ->
                     val direction = when (keyCode) {
@@ -486,6 +502,13 @@ private fun PlayerSession(
                 modifier = Modifier.align(Alignment.CenterEnd).padding(24.dp),
             )
         }
+        if (chatQrOpen && chatUrl != null) {
+            ChatQrOverlay(
+                chatUrl = chatUrl,
+                onDismiss = { chatQrOpen = false },
+                modifier = Modifier.align(Alignment.TopEnd).padding(24.dp),
+            )
+        }
     }
 }
 
@@ -501,6 +524,8 @@ private fun PlayerControlsBar(
     onForward: () -> Unit,
     onOpenSubtitles: () -> Unit,
     onOpenBitrate: () -> Unit,
+    chatAvailable: Boolean,
+    onOpenChatQr: () -> Unit,
     onSeekBar: (DefaultTimeBar) -> Unit,
     onSeekKey: (keyCode: Int, repeatCount: Int) -> Boolean,
     modifier: Modifier = Modifier,
@@ -562,6 +587,13 @@ private fun PlayerControlsBar(
             }
             ShumIconButton(onClick = onOpenBitrate) {
                 Icon(Icons.Default.HighQuality, contentDescription = "Quality", tint = AppWhite)
+            }
+            ShumIconButton(onClick = onOpenChatQr, enabled = chatAvailable) {
+                Icon(
+                    Icons.Default.ChatBubbleOutline,
+                    contentDescription = "Join chat",
+                    tint = AppWhite.copy(alpha = if (chatAvailable) 1f else 0.5f),
+                )
             }
         }
     }
@@ -655,5 +687,34 @@ private fun BitrateMenu(
                     },
             )
         }
+    }
+}
+
+@Composable
+private fun ChatQrOverlay(chatUrl: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    BackHandler(onBack = onDismiss)
+
+    LaunchedEffect(chatUrl) {
+        delay(CHAT_QR_DISPLAY_MS)
+        onDismiss()
+    }
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(AppScrim.copy(alpha = 0.9f))
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(text = "Join the chat", color = AppWhite, style = ShumTypography.titleMedium)
+        QrCodeImage(
+            content = chatUrl,
+            modifier = Modifier
+                .size(120.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(AppWhite)
+                .padding(8.dp),
+        )
     }
 }

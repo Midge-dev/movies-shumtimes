@@ -8,11 +8,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import com.moviesshumtimes.tv.sync.relayHttpUrl
+import java.net.URLEncoder
 
 @Composable
 fun QrCodeImage(content: String, modifier: Modifier = Modifier, sizePx: Int = 300) {
     val bitmap = remember(content, sizePx) { encodeQrCode(content, sizePx) }
     Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = modifier)
+}
+
+fun relayUrlToChatUrl(relayUrl: String, roomId: String, defaultName: String): String? {
+    val parsed = relayHttpUrl(relayUrl) ?: return null
+    val params = buildList {
+        parsed.query?.let { add(it) }
+        add("room=$roomId")
+        if (defaultName.isNotBlank()) add("name=${URLEncoder.encode(defaultName, "UTF-8")}")
+    }
+    return "${parsed.base}/chat?${params.joinToString("&")}"
 }
 
 private fun encodeQrCode(content: String, sizePx: Int): Bitmap {
