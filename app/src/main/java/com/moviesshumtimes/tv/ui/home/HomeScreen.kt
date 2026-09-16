@@ -1,9 +1,12 @@
 package com.moviesshumtimes.tv.ui.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -96,7 +99,8 @@ private const val TYPE_EPISODE = "episode"
 
 private const val ROW_STAGGER_PERIOD = 6
 
-private const val WATCH_TOGETHER_FOCUS_QUIET_MS = 800L
+private const val WATCH_TOGETHER_FOCUS_QUIET_MS = 1_200L
+private const val WATCH_TOGETHER_SCROLL_DURATION_MS = 1_100
 
 @Composable
 fun HomeScreen(
@@ -139,7 +143,7 @@ fun HomeScreen(
                 if (elapsed >= WATCH_TOGETHER_FOCUS_QUIET_MS) break
                 delay(WATCH_TOGETHER_FOCUS_QUIET_MS - elapsed)
             }
-            runCatching { homeListState.animateScrollToItem(0) }
+            runCatching { homeListState.scrollToTopSlowly() }
         }
         repeat(5) {
             if (runCatching { firstItemFocus.requestFocus() }.isSuccess) return@LaunchedEffect
@@ -186,7 +190,7 @@ fun HomeScreen(
         item {
             HomeRow(
                 title = "Watchlist",
-                items = watchlist.sortedByDescending { it.addedAt ?: 0L },
+                items = watchlist.reversed(),
                 key = { it.ratingKey },
             ) { entry, index ->
                 WatchlistPoster(
@@ -276,6 +280,15 @@ fun HomeScreen(
                 )
             }
         }
+    }
+}
+
+private suspend fun LazyListState.scrollToTopSlowly() {
+    val itemZero = layoutInfo.visibleItemsInfo.firstOrNull { it.index == 0 }
+    if (itemZero != null) {
+        animateScrollBy(itemZero.offset.toFloat(), tween(WATCH_TOGETHER_SCROLL_DURATION_MS, easing = FastOutSlowInEasing))
+    } else {
+        animateScrollToItem(0)
     }
 }
 

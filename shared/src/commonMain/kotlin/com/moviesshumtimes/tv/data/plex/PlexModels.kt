@@ -143,6 +143,7 @@ data class PlexMovieDetail(
     val thumb: String? = null,
     val art: String? = null,
     val guid: String? = null,
+    val summary: String? = null,
     val duration: Long? = null,
     val viewOffset: Long? = null,
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),

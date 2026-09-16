@@ -326,9 +326,28 @@ empty-list guard used by the other four. Room polling (§6.2) refreshes every
 user is scrolled down elsewhere; a dedicated `LaunchedEffect` keyed on a
 derived `watchTogetherGetsFocus` boolean (not the raw `liveRooms` list,
 which gets a new instance on every poll tick even when nothing changed)
-waits for a short quiet-input window (so it never yanks focus out from under
-active D-pad navigation) and then drives an explicit `animateScrollToItem(0)`
-plus a focus-steal onto the first room card. Every other row-content list
+waits for a short quiet-input window (1.2s — tuned up twice from an initial
+800ms after it still felt like it fired mid-navigation) so it never yanks
+focus out from under active D-pad navigation, then scrolls to the top and
+steals focus onto the first room card. That scroll uses a small
+`LazyListState.scrollToTopSlowly()` helper instead of a bare
+`animateScrollToItem(0)`, which has no public duration/easing knob — the
+helper reads `layoutInfo.visibleItemsInfo` for item 0's current `offset`
+(only present when item 0 is still partially laid out, i.e. the user hasn't
+scrolled more than roughly a screen's worth of rows past it) and drives that
+exact distance through `animateScrollBy(offset, tween(1.1s,
+FastOutSlowInEasing))` for a deliberately slow, purposeful-looking scroll.
+Overshooting this distance (e.g. always requesting a huge negative value and
+relying on `animateScrollBy` clamping at the top) was tried and rejected: the
+clamp happens as soon as the *cumulative* animated value exceeds the real
+distance, and with a huge requested value an easing curve's early frames
+already blow past a small real distance, so the scroll looks instantaneous
+instead of taking the full duration. When item 0 isn't laid out at all (user
+scrolled further away), it falls back to the plain unthrottled
+`animateScrollToItem(0)` — correctness (always landing exactly at the top)
+wins over a calibrated duration in that rarer case, since there's no cheap
+way to know the real distance without it being currently measured. Every
+other row-content list
 change (watchlist mutated, `onDeck` mutated, a room removed) is deliberately
 kept out of that same effect's key list — an earlier version folded them all
 into one `LaunchedEffect`, so any Watchlist removal while a room was live

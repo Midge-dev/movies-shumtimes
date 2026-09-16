@@ -140,6 +140,7 @@ fun MovieDetailScreen(
             MovieHero(
                 server = server,
                 movie = movie,
+                summary = detail?.summary ?: movie.summary,
                 playLabel = playLabel,
                 watchTogetherLabel = watchTogetherLabel,
                 showRestart = hasResume,
@@ -194,6 +195,7 @@ fun MovieDetailScreen(
 private fun MovieHero(
     server: PlexServer,
     movie: PlexLibraryItem,
+    summary: String?,
     playLabel: String,
     watchTogetherLabel: String,
     showRestart: Boolean,
@@ -218,15 +220,21 @@ private fun MovieHero(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, AppScrim)))
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.35f to AppScrim.copy(alpha = 0.8f),
+                        1f to AppScrim,
+                    ),
+                )
                 .padding(48.dp),
         ) {
             Text(text = movie.title, style = ShumTypography.displaySmall, color = AppWhite)
             movie.year?.let { year ->
                 Text(text = year.toString(), color = AppWhite, modifier = Modifier.padding(top = 8.dp))
             }
-            movie.summary?.let { summary ->
-                Text(text = summary, color = AppWhite, modifier = Modifier.padding(top = 16.dp))
+            summary?.let {
+                Text(text = it, color = AppWhite, modifier = Modifier.padding(top = 16.dp))
             }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -247,11 +255,13 @@ private fun MovieHero(
                     WatchTogetherIcon()
                     Text(watchTogetherLabel, modifier = Modifier.padding(start = 12.dp))
                 }
-                WatchlistButton(
-                    isOnWatchlist = isOnWatchlist,
-                    onClick = onToggleWatchlist,
-                    modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
-                )
+                if (!isShow) {
+                    WatchlistButton(
+                        isOnWatchlist = isOnWatchlist,
+                        onClick = onToggleWatchlist,
+                        modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
+                    )
+                }
                 if (isShow) {
                     ShumOutlinedButton(
                         onClick = onSeasons,
@@ -268,6 +278,13 @@ private fun MovieHero(
                     ) {
                         Icon(Icons.Filled.Replay, contentDescription = "Restart together from the beginning", tint = AppWhite)
                     }
+                }
+                if (isShow) {
+                    WatchlistButton(
+                        isOnWatchlist = isOnWatchlist,
+                        onClick = onToggleWatchlist,
+                        modifier = Modifier.onFocusChanged { if (it.isFocused) onActionButtonFocused() },
+                    )
                 }
             }
         }

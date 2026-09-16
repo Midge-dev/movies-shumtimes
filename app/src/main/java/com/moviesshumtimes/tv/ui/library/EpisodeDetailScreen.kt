@@ -106,7 +106,13 @@ fun EpisodeDetailScreen(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, AppScrim)))
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.35f to AppScrim.copy(alpha = 0.8f),
+                        1f to AppScrim,
+                    ),
+                )
                 .padding(48.dp),
         ) {
             Text(text = kicker, style = episodeKickerStyle, color = NeonPurpleGlow)
