@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../state/app_state.dart';
 import '../state/app_state_notifier.dart';
 import '../theme/tokens.dart';
+import 'common/kit_showcase_screen.dart';
 import 'common/placeholder_screen.dart';
 
 /// Renders whichever AppState is current. Real screens replace the
@@ -20,7 +21,10 @@ class AppRoot extends ConsumerWidget {
     return ColoredBox(
       color: AppColors.background,
       child: switch (state) {
-        Checking() => const PlaceholderScreen(label: 'Checking'),
+        // TEMPORARY: shows the Phase 3 kit library for visual verification
+        // in the fast loop. Swap back to PlaceholderScreen(label: 'Checking')
+        // once Phase 4 wires up the real splash/auth flow here.
+        Checking() => const KitShowcaseScreen(),
         LoggedOut() => const PlaceholderScreen(label: 'LoggedOut (Auth)'),
         ConnectingToServer() => const PlaceholderScreen(label: 'ConnectingToServer'),
         AppError(:final message) => PlaceholderScreen(label: 'Error: $message'),

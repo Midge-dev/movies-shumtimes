@@ -19,6 +19,9 @@ class AppColors {
   /// NeonPurpleGlow — outer stop of the focus-glow gradient, elevation glow color.
   static const accentGlow = Color(0xFFE795FC);
 
+  /// NeonPurplePressed — filled-surface press feedback (Button/IconButton).
+  static const accentPressed = Color(0xFF8F22B3);
+
   static const onAccent = Color(0xFFFFFFFF);
 
   /// Literal white for content over video/photos/QR — max contrast on
@@ -26,6 +29,8 @@ class AppColors {
   static const white = Color(0xFFFFFFFF);
 
   static const scrim = Color(0xFF000000);
+
+  static const transparent = Color(0x00000000);
 
   /// Idle/unfocused outline (inputs, idle card borders).
   static const dimBorder = Color(0xFF444444);
@@ -81,7 +86,15 @@ class AppFocusTreatment {
   static const focusedGlowColor = AppColors.accentGlow;
   static const focusedGlowBlurRadius = 12.0;
 
-  static const focusedGradient = LinearGradient(
+  /// NeonPurpleGradient — radial, glow-color center to accent edge; matches
+  /// AppColors.kt exactly (a linear gradient reads visibly different).
+  static const focusedGradient = RadialGradient(
     colors: [AppColors.accentGlow, AppColors.accent],
+  );
+
+  /// NeonPurpleProgressGradient — horizontal, accent to glow-color; used by
+  /// the player's scrub bar, not the focus border.
+  static const progressGradient = LinearGradient(
+    colors: [AppColors.accent, AppColors.accentGlow],
   );
 }

@@ -2,23 +2,20 @@ import 'package:flutter/widgets.dart';
 
 import 'tokens.dart';
 
-/// Type roles per docs/design-tokens.md §Typography — role hierarchy is the
-/// shared contract, not pixel values. Sizes below are a first TV-legible
-/// pass for Flutter/Android; revisit once real screens are on the Shield.
+/// Ports ui/kit/Type.kt exactly (fontSize/lineHeight/weight) — this is the
+/// real source of truth, superseding Phase 0's placeholder first pass.
+/// `height` below is a multiplier of fontSize (Flutter's TextStyle.height
+/// convention), computed from Kotlin's absolute lineHeight/fontSize ratio.
 class AppTypography {
   AppTypography._();
 
-  static const _base = TextStyle(
-    color: AppColors.onBackground,
-    fontWeight: FontWeight.normal,
-  );
+  static const _color = AppColors.onBackground;
 
-  static final displaySmall = _base.copyWith(fontSize: 40, fontWeight: FontWeight.bold);
-  static final displayMedium = _base.copyWith(fontSize: 32, fontWeight: FontWeight.bold);
-  static final headlineMedium = _base.copyWith(fontSize: 24, fontWeight: FontWeight.w600);
-  static final headlineSmall = _base.copyWith(fontSize: 20, fontWeight: FontWeight.w600);
-  static final titleLarge = _base.copyWith(fontSize: 18, fontWeight: FontWeight.w600);
-  static final titleMedium = _base.copyWith(fontSize: 16, fontWeight: FontWeight.w500);
-  static final bodyLarge = _base.copyWith(fontSize: 16);
-  static final bodyMedium = _base.copyWith(fontSize: 14);
+  static const displaySmall = TextStyle(fontSize: 44, height: 48 / 44, fontWeight: FontWeight.normal, color: _color);
+  static const displayMedium = TextStyle(fontSize: 36, height: 40 / 36, fontWeight: FontWeight.normal, color: _color);
+  static const headlineMedium = TextStyle(fontSize: 28, height: 32 / 28, fontWeight: FontWeight.normal, color: _color);
+  static const titleLarge = TextStyle(fontSize: 22, height: 26 / 22, fontWeight: FontWeight.w500, color: _color);
+  static const titleMedium = TextStyle(fontSize: 18, height: 22 / 18, fontWeight: FontWeight.w500, color: _color);
+  static const bodyLarge = TextStyle(fontSize: 16, height: 22 / 16, fontWeight: FontWeight.normal, color: _color);
+  static const bodySmall = TextStyle(fontSize: 12, height: 16 / 12, fontWeight: FontWeight.normal, color: _color);
 }
