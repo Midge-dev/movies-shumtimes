@@ -2,9 +2,12 @@
 /// no Jetpack Navigation / nav-graph — one hand-rolled sealed state drives
 /// a single `when`/switch). `returnState` mirrors the Kotlin back-stack
 /// pattern: back navigation restores the captured state and re-fetches
-/// fresh data for it, rather than using a URL-based router. Field types are
-/// placeholders (String ids) until the Phase 1 data layer lands real Plex
-/// models; screens are wired in Phase 4.
+/// fresh data for it, rather than using a URL-based router. States get
+/// upgraded from Phase 0's placeholder String-id fields to real typed
+/// payloads (matching Kotlin's actual AppState data classes) as each
+/// screen that needs them lands in Phase 4 — Checking/LoggedOut/
+/// ConnectingToServer/AppError are real now (Splash/Auth); the rest are
+/// still placeholders.
 sealed class AppState {
   const AppState();
 }
@@ -18,7 +21,9 @@ class LoggedOut extends AppState {
 }
 
 class ConnectingToServer extends AppState {
-  const ConnectingToServer();
+  final String? username;
+
+  const ConnectingToServer({this.username});
 }
 
 class AppError extends AppState {
