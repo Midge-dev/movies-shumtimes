@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/plex/plex_models.dart';
 import '../state/app_state.dart';
 import '../state/app_state_notifier.dart';
 import '../state/data_providers.dart';
@@ -8,7 +9,16 @@ import '../theme/tokens.dart';
 import 'auth/auth_screen.dart';
 import 'common/loading_screen.dart';
 import 'common/placeholder_screen.dart';
+import 'navigation/app_navigation_drawer.dart';
 import 'splash/splash_screen.dart';
+
+// TEMPORARY: mock sections so AppNavigationDrawer is visible in the fast
+// loop for visual verification. Remove once the real Home screen supplies
+// sections from PlexServerApi.fetchSections().
+const _mockSections = [
+  PlexSection(key: 's1', title: 'Movies', type: 'movie'),
+  PlexSection(key: 's2', title: 'Shows', type: 'show'),
+];
 
 const _splashMinHoldMs = 1400;
 const _splashCrossfadeDuration = Duration(milliseconds: 200);
@@ -96,7 +106,18 @@ class _AppRootState extends ConsumerState<AppRoot> {
         ),
       AppError(:final message) => PlaceholderScreen(label: 'Error: $message'),
       RelaySetup() => const PlaceholderScreen(label: 'RelaySetup'),
-      Home() => const PlaceholderScreen(label: 'Home'),
+      // TEMPORARY: AppNavigationDrawer visual check — swap for the real
+      // Home screen (with real sections/account) when it lands.
+      Home() => AppNavigationDrawer(
+          sections: _mockSections,
+          isHomeSelected: true,
+          isSettingsSelected: false,
+          onSelectSection: (_) {},
+          onOpenSettings: () {},
+          onOpenHome: () {},
+          versionName: '0.3.0',
+          child: const PlaceholderScreen(label: 'Home content'),
+        ),
       Library(:final sectionKey) => PlaceholderScreen(label: 'Library: $sectionKey'),
       LoadingSection() => const PlaceholderScreen(label: 'LoadingSection'),
       Settings() => const PlaceholderScreen(label: 'Settings'),
