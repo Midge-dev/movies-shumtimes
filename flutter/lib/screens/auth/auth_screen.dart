@@ -115,14 +115,22 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
               child: QrImageView(data: 'https://www.plex.tv/link/', backgroundColor: AppColors.white),
             ),
             const SizedBox(width: 48),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const AppText('Scan with your phone, or on any device visit plex.tv/link, then enter:'),
-                const SizedBox(height: 24),
-                AppText(code, style: AppTypography.displayMedium),
-              ],
+            Flexible(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const AppText(
+                      'Scan with your phone, or on any device visit plex.tv/link, then enter:',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    AppText(code, style: AppTypography.displayMedium),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
