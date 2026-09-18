@@ -14,6 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "movies-shumtimes"
+rootProject.name = "reelay"
 include(":app")
 include(":shared")

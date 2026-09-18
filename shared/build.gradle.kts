@@ -6,7 +6,7 @@ plugins {
 
 kotlin {
     android {
-        namespace = "com.moviesshumtimes.tv.shared"
+        namespace = "com.reelay.tv.shared"
         compileSdk = 36
         minSdk = 26
     }

@@ -1,8 +1,8 @@
 {
-  "name": "shumtimes-relay",
+  "name": "reelay-sync",
   "version": "1.0.0",
   "private": true,
-  "description": "WebSocket relay for Movies Shumtimes watch-together sync",
+  "description": "WebSocket relay for Reelay watch-together sync",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

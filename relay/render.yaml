@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: shumtimes-relay
+    name: reelay-sync
     runtime: node
     plan: free
     rootDir: relay

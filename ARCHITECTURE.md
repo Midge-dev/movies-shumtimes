@@ -1,4 +1,4 @@
-# Movies Shumtimes — Architecture & Design Notes
+# Reelay — Architecture & Design Notes
 
 This document exists because the codebase's comments used to carry this
 knowledge inline, one decision at a time, next to the code it explained. That
@@ -882,6 +882,15 @@ through `observableSettings()`.
 AES-GCM key that never leaves hardware (or a software fallback on older
 devices), via the Android Keystore directly, encrypting the Plex account
 token before it's persisted in DataStore.
+
+`loadToken()` catches `GeneralSecurityException` around the decrypt call and
+treats it as "no token" (clearing the stored ciphertext) rather than letting
+it propagate — a mismatched key (the alias changed, or the OS invalidated
+the Keystore entry, e.g. after a factory reset restore) throws
+`AEADBadTagException` from GCM's tag-verification step, which otherwise
+crashes the app on every launch with no way to recover short of clearing app
+data manually. Falling through to a normal logged-out state just means one
+extra Plex re-login instead.
 
 `PairingServer` is a tiny, hand-rolled, LAN-only HTTP server — the whole
 surface needed is exactly two routes (serve a form, accept its POST), so a

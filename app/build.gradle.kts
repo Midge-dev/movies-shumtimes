@@ -20,11 +20,11 @@ val releaseStoreFile = localProperties.getProperty("RELEASE_STORE_FILE")?.let { 
     ?.takeIf { it.exists() }
 
 android {
-    namespace = "com.moviesshumtimes.tv"
+    namespace = "com.reelay.tv"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.moviesshumtimes.tv"
+        applicationId = "com.reelay.tv"
         minSdk = 26
         targetSdk = 36
         versionCode = 2
@@ -83,7 +83,7 @@ android {
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.outputs.forEach { output ->
-            output.outputFileName.set("movies-shumtimes.apk")
+            output.outputFileName.set("reelay.apk")
         }
     }
 }

@@ -1,4 +1,4 @@
-# Shumtimes — Project Notes
+# Reelay — Project Notes
 
 Custom Android TV Plex client for the Nvidia Shield Pro (2019), built to enable
 real synchronized "watch together" playback with a cousin on a remote Plex
@@ -46,7 +46,7 @@ running setup details, decisions, and gotchas as we build.
 
 - `app/` — the Android TV Kotlin/Compose client
 - `relay/` — (Phase E) the watch-together WebSocket relay, Node.js
-- App name: **Movies Shumtimes**; package/applicationId: `com.moviesshumtimes.tv`
+- App name: **Reelay**; package/applicationId: `com.reelay.tv`
 
 ## Decisions made along the way
 

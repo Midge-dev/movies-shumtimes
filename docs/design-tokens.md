@@ -1,4 +1,4 @@
-# Shumtimes — Cross-Platform Design Tokens
+# Reelay — Cross-Platform Design Tokens
 
 Values, not code. This spec exists because there is no single UI framework
 that runs on all target platforms — Compose (`androidx.tv.material3`) is
@@ -12,7 +12,7 @@ feels like one product everywhere. See `NOTES.md` for the toolchain/backend
 side of the cross-platform plan; this file is UI-only.
 
 Current values below are extracted from the live Android implementation
-(`app/src/main/java/com/moviesshumtimes/tv/ui/theme/`) — Android stays the
+(`app/src/main/java/com/reelay/tv/ui/theme/`) — Android stays the
 reference implementation; nothing here changes what's on screen today.
 
 ## Color

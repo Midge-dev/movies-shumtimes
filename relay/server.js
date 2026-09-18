@@ -298,7 +298,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('shumtimes relay ok\n');
+  res.end('reelay relay ok\n');
 });
 
 const wss = new WebSocket.Server({ noServer: true });
@@ -381,7 +381,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
 <html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
-<title>Movies Shumtimes — Chat</title>
+<title>Reelay — Chat</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -422,7 +422,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
 </style>
 </head><body>
   <header>
-    <h1>Movies Shumtimes — Chat</h1>
+    <h1>Reelay — Chat</h1>
     <div id="status">Connecting…</div>
     <div>Chatting as <input type="text" id="nameField" maxlength="24"></div>
   </header>
@@ -440,7 +440,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
     const roomId = new URLSearchParams(location.search).get('room');
 
     const urlName = new URLSearchParams(location.search).get('name');
-    let username = localStorage.getItem('shumtimes_chat_name')
+    let username = localStorage.getItem('reelay_chat_name')
       || urlName
       || ('Phone ' + Math.floor(Math.random() * 900 + 100));
     nameField.value = username;
@@ -448,7 +448,7 @@ const CHAT_PAGE_HTML = `<!doctype html>
     nameField.addEventListener('change', () => {
       username = nameField.value.trim() || username;
       nameField.value = username;
-      localStorage.setItem('shumtimes_chat_name', username);
+      localStorage.setItem('reelay_chat_name', username);
     });
 
     function renderMessage(who, text, isMe) {
@@ -524,5 +524,5 @@ const CHAT_PAGE_HTML = `<!doctype html>
 `;
 
 server.listen(PORT, () => {
-  console.log(`Shumtimes relay listening on port ${PORT}`);
+  console.log(`Reelay relay listening on port ${PORT}`);
 });

@@ -1,4 +1,4 @@
-# Movies Shumtimes
+# Reelay
 
 A custom Android TV Plex client with real synchronized "watch together"
 playback — built for two people on separate Plex accounts/servers/houses to
@@ -45,8 +45,8 @@ Gradle itself doesn't need installing — the repo ships a wrapper
 ### Clone and build
 
 ```
-git clone https://github.com/Midge-dev/movies-shumtimes.git
-cd movies-shumtimes
+git clone https://github.com/Midge-dev/reelay.git
+cd reelay
 ./gradlew assembleDebug
 ```
 
@@ -62,7 +62,7 @@ sdk.dir=/path/to/your/android-sdk
 Once it finishes, the debug APK is at:
 
 ```
-app/build/outputs/apk/debug/movies-shumtimes.apk
+app/build/outputs/apk/debug/reelay.apk
 ```
 
 The Settings screen falls back to a placeholder LAN address until you set a
@@ -84,7 +84,7 @@ sideload for personal use.)
 - A Plex.tv account that the host has shared their library with (Plex
   Friends) — accept that invite first if you haven't.
 - The relay URL (and token, if any) from the host — looks like
-  `wss://shumtimes-relay.onrender.com?token=...`. You'll need this for the
+  `wss://reelay-sync.onrender.com?token=...`. You'll need this for the
   Settings screen once the app's installed.
 
 ### Option A — Downloader app (easiest, no computer needed)
@@ -93,7 +93,7 @@ Every push to `main` automatically builds a fresh APK and publishes it as a
 direct download here:
 
 ```
-https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/movies-shumtimes.apk
+https://github.com/Midge-dev/reelay/releases/latest/download/reelay.apk
 ```
 
 1. On the Android TV, install **Downloader** from the app store.
@@ -109,17 +109,17 @@ host can walk you through it / remote in)
 2. Developer Options → **Network debugging** → on. Note the IP address shown
    on screen.
 3. From a computer with `adb`, grab the APK (either download it from
-   [the latest release](https://github.com/Midge-dev/movies-shumtimes/releases/latest/download/movies-shumtimes.apk),
+   [the latest release](https://github.com/Midge-dev/reelay/releases/latest/download/reelay.apk),
    or build it yourself per the section above) and install it:
    ```
    adb connect <tv-ip-address>:5555
-   adb install movies-shumtimes.apk
+   adb install reelay.apk
    ```
 4. Accept the connection prompt that appears on the TV.
 
 ### First launch
 
-1. Open **Movies Shumtimes** from the apps list.
+1. Open **Reelay** from the apps list.
 2. It shows a short code and `plex.tv/link`. On your phone or any browser,
    go to that address and enter the code.
 3. Once logged in, you should see the host's shared library.
@@ -167,8 +167,8 @@ internet — deployed to Render.com's free tier.
 2. On [render.com](https://render.com), **New → Blueprint**, point it at
    this repo. It picks up `relay/render.yaml` automatically — a free-tier
    Node web service with a random `RELAY_TOKEN` generated for you.
-3. Render gives you a URL like `https://shumtimes-relay.onrender.com` — the
-   app needs the WebSocket form: `wss://shumtimes-relay.onrender.com`.
+3. Render gives you a URL like `https://reelay-sync.onrender.com` — the
+   app needs the WebSocket form: `wss://reelay-sync.onrender.com`.
 4. Grab the generated `RELAY_TOKEN` from the service's **Environment** tab
    and share both the URL and token with whoever's joining you (they append
    `?token=<token>` to the relay URL in their own Settings screen).
