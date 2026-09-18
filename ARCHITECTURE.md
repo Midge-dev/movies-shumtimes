@@ -223,7 +223,10 @@ whole app's two-tone treatment.
 ## 4. Focus management on Android TV
 
 This is the single most recurring category of bug and fix in this codebase,
-so it gets its own section rather than being scattered per-screen.
+so it gets its own section rather than being scattered per-screen. See
+`docs/focus-navigation-qa-checklist.md` for these same bug classes written
+up as a framework-agnostic QA checklist, for testing any future UI rewrite
+(e.g. a Flutter port) against the same failure modes.
 
 ### The hazard
 
