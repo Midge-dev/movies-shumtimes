@@ -23,4 +23,20 @@ void main() {
   test('blank host returns null', () {
     expect(relayHttpUrl('wss:///socket'), isNull);
   });
+
+  group('relayUrlToChatUrl', () {
+    test('carries the relay auth query forward and appends room/name', () {
+      final url = relayUrlToChatUrl('wss://relay.example.com?token=abc', 'room1', 'Sean');
+      expect(url, 'https://relay.example.com/chat?token=abc&room=room1&name=Sean');
+    });
+
+    test('omits an empty default name', () {
+      final url = relayUrlToChatUrl('wss://relay.example.com?token=abc', 'room1', '');
+      expect(url, 'https://relay.example.com/chat?token=abc&room=room1');
+    });
+
+    test('returns null for an unparseable relay url', () {
+      expect(relayUrlToChatUrl('not-a-url', 'room1', 'Sean'), isNull);
+    });
+  });
 }

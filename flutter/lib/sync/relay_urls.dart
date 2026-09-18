@@ -26,3 +26,17 @@ RelayHttpUrl? relayHttpUrl(String relayUrl) {
 
   return RelayHttpUrl(base: '$httpScheme$hostAndPort', query: query);
 }
+
+/// Builds the phone-chat page URL for a room, carrying the relay's own
+/// auth query string forward. Ports QrCode.kt's `relayUrlToChatUrl`.
+String? relayUrlToChatUrl(String relayUrl, String roomId, String defaultName) {
+  final parsed = relayHttpUrl(relayUrl);
+  if (parsed == null) return null;
+
+  final params = <String>[
+    if (parsed.query != null) parsed.query!,
+    'room=$roomId',
+    if (defaultName.trim().isNotEmpty) 'name=${Uri.encodeQueryComponent(defaultName)}',
+  ];
+  return '${parsed.base}/chat?${params.join('&')}';
+}
