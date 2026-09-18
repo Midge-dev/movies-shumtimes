@@ -22,6 +22,7 @@ class FocusableSurface extends StatefulWidget {
   final SurfaceBorder border;
   final SurfaceGlow glow;
   final FocusNode? focusNode;
+  final bool autofocus;
   final AlignmentGeometry contentAlignment;
   final ValueChanged<bool>? onFocusChange;
   final ValueChanged<bool>? onPressChange;
@@ -38,6 +39,7 @@ class FocusableSurface extends StatefulWidget {
     this.border = const SurfaceBorder(),
     this.glow = const SurfaceGlow(),
     this.focusNode,
+    this.autofocus = false,
     this.contentAlignment = Alignment.center,
     this.onFocusChange,
     this.onPressChange,
@@ -166,6 +168,7 @@ class _FocusableSurfaceState extends State<FocusableSurface> {
     return Focus(
       focusNode: _focusNode,
       canRequestFocus: widget.enabled,
+      autofocus: widget.autofocus,
       onKeyEvent: _handleKeyEvent,
       child: MouseRegion(
         cursor: widget.enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,

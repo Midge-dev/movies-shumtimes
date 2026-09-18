@@ -28,6 +28,7 @@ class AppCard extends StatefulWidget {
   final VoidCallback? onLongClick;
   final bool enabled;
   final FocusNode? focusNode;
+  final bool autofocus;
   final double focusScale;
   final ShapeBorder? shape;
   final Widget child;
@@ -38,6 +39,7 @@ class AppCard extends StatefulWidget {
     this.onLongClick,
     this.enabled = true,
     this.focusNode,
+    this.autofocus = false,
     this.focusScale = _defaultFocusScale,
     this.shape,
     required this.child,
@@ -85,6 +87,7 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
         onLongClick: widget.onLongClick,
         enabled: widget.enabled,
         focusNode: widget.focusNode,
+        autofocus: widget.autofocus,
         onFocusChange: _handleFocusChange,
         shape: shape,
         colors: _cardColors,
