@@ -27,6 +27,7 @@ class AppButton extends StatelessWidget {
   final bool enabled;
   final bool compact;
   final FocusNode? focusNode;
+  final ValueChanged<bool>? onFocusChange;
   final Widget child;
 
   const AppButton({
@@ -35,6 +36,7 @@ class AppButton extends StatelessWidget {
     this.enabled = true,
     this.compact = false,
     this.focusNode,
+    this.onFocusChange,
     required this.child,
   });
 
@@ -44,6 +46,7 @@ class AppButton extends StatelessWidget {
       onClick: onClick,
       enabled: enabled,
       focusNode: focusNode,
+      onFocusChange: onFocusChange,
       shape: const StadiumBorder(),
       colors: _filledColors,
       border: _filledBorder,
@@ -81,6 +84,7 @@ class AppOutlinedButton extends StatelessWidget {
   final bool enabled;
   final bool compact;
   final FocusNode? focusNode;
+  final ValueChanged<bool>? onFocusChange;
   final Widget child;
 
   const AppOutlinedButton({
@@ -89,6 +93,7 @@ class AppOutlinedButton extends StatelessWidget {
     this.enabled = true,
     this.compact = false,
     this.focusNode,
+    this.onFocusChange,
     required this.child,
   });
 
@@ -98,6 +103,7 @@ class AppOutlinedButton extends StatelessWidget {
       onClick: onClick,
       enabled: enabled,
       focusNode: focusNode,
+      onFocusChange: onFocusChange,
       shape: const StadiumBorder(),
       colors: _outlinedColors,
       border: _outlinedBorder,
