@@ -15,7 +15,7 @@ void main() {
     test('always includes an Off option first, then subtitle streams only', () {
       final part = _partWith([
         const PlexStream(id: 1, streamType: 2), // audio, should be excluded
-        const PlexStream(id: 2, streamType: 3, language: 'English'),
+        const PlexStream(id: 2, streamType: 3, key: '/library/streams/2', language: 'English'),
         const PlexStream(id: 3, streamType: 3, codec: 'pgs'),
       ]);
 
@@ -32,12 +32,43 @@ void main() {
 
     test('forced tracks are labeled distinctly from burn-required ones', () {
       final part = _partWith([
-        const PlexStream(id: 1, streamType: 3, language: 'English', forced: true),
+        const PlexStream(id: 1, streamType: 3, key: '/library/streams/1', language: 'English', forced: true),
       ]);
 
       final options = subtitleOptions(part);
 
       expect(options[1].label, 'English (Forced)');
+    });
+
+    test('an embedded, non-burn-required track is excluded — video_player cannot select it', () {
+      final part = _partWith([
+        const PlexStream(id: 1, streamType: 3, language: 'English', index: 0), // no key, not a burn codec
+      ]);
+
+      final options = subtitleOptions(part);
+
+      expect(options, hasLength(1), reason: 'only Off should remain');
+      expect(options[0].label, 'Off');
+    });
+
+    test('an external sidecar track is included even without a burn-required codec', () {
+      final part = _partWith([
+        const PlexStream(id: 1, streamType: 3, key: '/library/streams/1', language: 'English'),
+      ]);
+
+      final options = subtitleOptions(part);
+
+      expect(options, hasLength(2));
+      expect(options[1].label, 'English');
+    });
+
+    test('a burn-required embedded track is included even without a key', () {
+      final part = _partWith([const PlexStream(id: 1, streamType: 3, codec: 'vobsub')]);
+
+      final options = subtitleOptions(part);
+
+      expect(options, hasLength(2));
+      expect(options[1].requiresBurn, isTrue);
     });
   });
 

@@ -63,9 +63,19 @@ class ExternalSubtitle extends SubtitleSource {
   const ExternalSubtitle({required this.key, this.languageCode});
 }
 
+/// Deviates from Kotlin's `subtitleOptions` (which lists every track): the
+/// `video_player` package has no API at all for selecting a subtitle track
+/// muxed into the video container — only an externally-supplied caption
+/// file. So an embedded, non-burn-required track (`key == null` and not a
+/// bitmap codec) would be selectable here but silently never render any
+/// captions. Filtered out rather than offering a picker option that's
+/// known not to work. External sidecar tracks (`key != null`, fetchable at
+/// their own URL as a caption file) and burn-required tracks (baked into
+/// the transcoded video itself, so no player-side track selection is
+/// involved at all) are unaffected and still listed.
 List<SubtitleOption> subtitleOptions(PlexPart part) {
   final tracks = part.streams
-      .where((s) => s.streamType == _subtitleStreamType)
+      .where((s) => s.streamType == _subtitleStreamType && (s.key != null || _requiresBurn(s)))
       .map((s) => SubtitleOption(streamId: s.id, label: _subtitleLabel(s), requiresBurn: _requiresBurn(s)))
       .toList();
   return [const SubtitleOption(streamId: null, label: 'Off', requiresBurn: false), ...tracks];
