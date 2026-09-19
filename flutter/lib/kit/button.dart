@@ -87,6 +87,7 @@ class AppOutlinedButton extends StatelessWidget {
   final bool enabled;
   final bool compact;
   final FocusNode? focusNode;
+  final bool autofocus;
   final ValueChanged<bool>? onFocusChange;
   final Widget child;
 
@@ -96,6 +97,7 @@ class AppOutlinedButton extends StatelessWidget {
     this.enabled = true,
     this.compact = false,
     this.focusNode,
+    this.autofocus = false,
     this.onFocusChange,
     required this.child,
   });
@@ -106,6 +108,7 @@ class AppOutlinedButton extends StatelessWidget {
       onClick: onClick,
       enabled: enabled,
       focusNode: focusNode,
+      autofocus: autofocus,
       onFocusChange: onFocusChange,
       shape: const StadiumBorder(),
       colors: _outlinedColors,

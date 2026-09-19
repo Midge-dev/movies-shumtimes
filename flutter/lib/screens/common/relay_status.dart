@@ -1,20 +1,104 @@
+import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/widgets.dart' hide ConnectionState;
 
 import '../../kit/button.dart';
 import '../../kit/text.dart';
+import '../../sync/relay_protocol.dart';
 import '../../theme/tokens.dart';
 
 /// Ports ui/common/RelayStatus.kt's `RelayStatus` sealed interface. Only
 /// the display widgets (RelayStatusDot/RelayStatusLine) are ported here —
 /// `rememberRelayStatus` (driving this off a live RelayClient's
-/// ConnectionState) belongs to the Lobby/Player screens, not Settings,
-/// which drives `RelayStatus` itself off a one-shot local timer while
-/// testing a newly paired relay.
+/// ConnectionState, ported below as [RelayStatusTracker]) belongs to the
+/// Lobby/Player screens, not Settings, which drives `RelayStatus` itself
+/// off a one-shot local timer while testing a newly paired relay.
 enum RelayStatus { silent, waking, connectedConfirm, dotOnly, reconnecting, failed }
 
 const _amberGrey = Color(0xFFB89A6A);
+
+const _wakingAtMs = 2000;
+const _failedAtMs = 75000;
+const _connectedConfirmVisibleMs = 2000;
+
+/// Ports `rememberRelayStatus` — a small stateful derivation of
+/// [RelayStatus] from a live [ConnectionState] stream. Compose expresses
+/// this as two `LaunchedEffect`s keyed on different inputs, each
+/// automatically cancelled and relaunched when its key changes; ported
+/// here as one handler per connectionState event that runs the same two
+/// pieces of logic in sequence (effect 2's write to `_everConnected`
+/// happens first, so effect 1's key naturally sees the up-to-date value —
+/// same ordering the two LaunchedEffects settle into in the same
+/// recomposition).
+class RelayStatusTracker {
+  RelayStatusTracker(Stream<ConnectionState> connectionState, {ConnectionState initial = ConnectionState.disconnected})
+      : status = ValueNotifier(RelayStatus.silent) {
+    _handle(initial);
+    _subscription = connectionState.listen(_handle);
+  }
+
+  final ValueNotifier<RelayStatus> status;
+  late final StreamSubscription<ConnectionState> _subscription;
+
+  bool _everConnected = false;
+  bool _lastIsTryingToConnect = false;
+  bool _effect1Started = false;
+  Timer? _effect1WakingTimer;
+  Timer? _effect1FailedTimer;
+  Timer? _effect2ResetTimer;
+
+  void _handle(ConnectionState state) {
+    // Effect 2: keyed on connectionState itself — always restarts.
+    _effect2ResetTimer?.cancel();
+    _effect2ResetTimer = null;
+    switch (state) {
+      case ConnectionState.connected:
+        _everConnected = true;
+        status.value = RelayStatus.connectedConfirm;
+        _effect2ResetTimer = Timer(const Duration(milliseconds: _connectedConfirmVisibleMs), () {
+          status.value = RelayStatus.dotOnly;
+        });
+      case ConnectionState.roomFull:
+      case ConnectionState.roomNotFound:
+        status.value = RelayStatus.failed;
+      default:
+        break;
+    }
+
+    // Effect 1: keyed on (isTryingToConnect, everConnected) — only
+    // restarts when that pair actually changes.
+    final isTryingToConnect = state == ConnectionState.connecting || state == ConnectionState.reconnecting;
+    if (_effect1Started && isTryingToConnect == _lastIsTryingToConnect) return;
+    _effect1Started = true;
+    _lastIsTryingToConnect = isTryingToConnect;
+    _effect1WakingTimer?.cancel();
+    _effect1FailedTimer?.cancel();
+    _effect1WakingTimer = null;
+    _effect1FailedTimer = null;
+
+    if (!isTryingToConnect) return;
+    if (_everConnected) {
+      status.value = RelayStatus.reconnecting;
+      return;
+    }
+    status.value = RelayStatus.silent;
+    _effect1WakingTimer = Timer(const Duration(milliseconds: _wakingAtMs), () {
+      status.value = RelayStatus.waking;
+      _effect1FailedTimer = Timer(const Duration(milliseconds: _failedAtMs - _wakingAtMs), () {
+        status.value = RelayStatus.failed;
+      });
+    });
+  }
+
+  void dispose() {
+    _subscription.cancel();
+    _effect1WakingTimer?.cancel();
+    _effect1FailedTimer?.cancel();
+    _effect2ResetTimer?.cancel();
+    status.dispose();
+  }
+}
 
 class RelayStatusDot extends StatelessWidget {
   final RelayStatus status;
