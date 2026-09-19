@@ -20,6 +20,7 @@ class AppListItem extends StatelessWidget {
   final bool selected;
   final VoidCallback onClick;
   final FocusNode? focusNode;
+  final bool autofocus;
   final Widget? leading;
   final Widget headline;
 
@@ -28,6 +29,7 @@ class AppListItem extends StatelessWidget {
     required this.selected,
     required this.onClick,
     this.focusNode,
+    this.autofocus = false,
     this.leading,
     required this.headline,
   });
@@ -40,6 +42,7 @@ class AppListItem extends StatelessWidget {
         onClick: onClick,
         selected: selected,
         focusNode: focusNode,
+        autofocus: autofocus,
         shape: _listItemShape,
         colors: _listItemColors,
         contentAlignment: AlignmentDirectional.centerStart,

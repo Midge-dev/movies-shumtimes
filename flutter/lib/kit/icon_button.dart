@@ -24,6 +24,7 @@ class AppIconButton extends StatelessWidget {
   final bool enabled;
   final SurfaceBorder border;
   final FocusNode? focusNode;
+  final bool autofocus;
   final ValueChanged<bool>? onFocusChange;
   final Widget child;
 
@@ -33,6 +34,7 @@ class AppIconButton extends StatelessWidget {
     this.enabled = true,
     this.border = _defaultIconButtonBorder,
     this.focusNode,
+    this.autofocus = false,
     this.onFocusChange,
     required this.child,
   });
@@ -46,6 +48,7 @@ class AppIconButton extends StatelessWidget {
         onClick: onClick,
         enabled: enabled,
         focusNode: focusNode,
+        autofocus: autofocus,
         onFocusChange: onFocusChange,
         shape: _iconButtonShape,
         colors: _iconButtonColors,
