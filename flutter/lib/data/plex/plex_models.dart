@@ -351,6 +351,28 @@ class PlexMovieDetail {
 
   factory PlexMovieDetail.fromJson(Map<String, dynamic> json) => _$PlexMovieDetailFromJson(json);
   Map<String, dynamic> toJson() => _$PlexMovieDetailToJson(this);
+
+  /// json_serializable doesn't generate a `copyWith` — added by hand for
+  /// the "restart from beginning" (`viewOffset: 0`) case AppRoot needs.
+  PlexMovieDetail copyWith({int? viewOffset}) => PlexMovieDetail(
+        ratingKey: ratingKey,
+        title: title,
+        thumb: thumb,
+        art: art,
+        guid: guid,
+        summary: summary,
+        duration: duration,
+        viewOffset: viewOffset ?? this.viewOffset,
+        media: media,
+        rating: rating,
+        audienceRating: audienceRating,
+        ratingImage: ratingImage,
+        audienceRatingImage: audienceRatingImage,
+        roles: roles,
+        directors: directors,
+        writers: writers,
+        reviews: reviews,
+      );
 }
 
 @JsonSerializable()

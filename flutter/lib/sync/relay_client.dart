@@ -73,6 +73,7 @@ class RelayClient {
 
   final _roomId = BehaviorSubject<String?>.seeded(null);
   Stream<String?> get roomId => _roomId.stream;
+  String? get roomIdValue => _roomId.value;
 
   String get myPeerId => _identity.peerId;
 

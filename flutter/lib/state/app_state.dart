@@ -1,13 +1,30 @@
+import '../data/plex/plex_models.dart';
+import '../sync/relay_client.dart';
+
+/// Ports MainActivity.kt's private `LibraryContext` data class — the
+/// server/sections/selected-section/items bundle threaded through every
+/// library-adjacent AppState.
+class LibraryContext {
+  final PlexServer server;
+  final List<PlexSection> sections;
+  final PlexSection selectedSection;
+  final List<PlexLibraryItem> items;
+
+  const LibraryContext({required this.server, required this.sections, required this.selectedSection, required this.items});
+
+  LibraryContext copyWith({PlexSection? selectedSection, List<PlexLibraryItem>? items}) => LibraryContext(
+        server: server,
+        sections: sections,
+        selectedSection: selectedSection ?? this.selectedSection,
+        items: items ?? this.items,
+      );
+}
+
 /// Ports MainActivity.kt's `sealed interface AppState` (the Kotlin app has
 /// no Jetpack Navigation / nav-graph — one hand-rolled sealed state drives
 /// a single `when`/switch). `returnState` mirrors the Kotlin back-stack
 /// pattern: back navigation restores the captured state and re-fetches
-/// fresh data for it, rather than using a URL-based router. States get
-/// upgraded from Phase 0's placeholder String-id fields to real typed
-/// payloads (matching Kotlin's actual AppState data classes) as each
-/// screen that needs them lands in Phase 4 — Checking/LoggedOut/
-/// ConnectingToServer/AppError are real now (Splash/Auth); the rest are
-/// still placeholders.
+/// fresh data for it, rather than using a URL-based router.
 sealed class AppState {
   const AppState();
 }
@@ -26,6 +43,11 @@ class ConnectingToServer extends AppState {
   const ConnectingToServer({this.username});
 }
 
+/// Kotlin's `Error` state has no way back at all (just a bare `Text`, no
+/// BackHandler) — a genuine dead end there. This port adds [retryState] so
+/// AppRoot can wire a back action, since every other screen in this app
+/// supports back and a true dead end would be a jarring regression, not a
+/// deliberate design choice worth preserving.
 class AppError extends AppState {
   final String message;
   final AppState retryState;
@@ -34,85 +56,150 @@ class AppError extends AppState {
 }
 
 class RelaySetup extends AppState {
-  final AppState returnState;
+  final LibraryContext ctx;
 
-  const RelaySetup({required this.returnState});
+  const RelaySetup({required this.ctx});
 }
 
 class Home extends AppState {
-  const Home();
+  final PlexServer server;
+  final List<PlexSection> sections;
+  final List<PlexOnDeckItem> onDeck;
+  final List<PlexLibraryItem> recentlyAdded;
+  final List<PlexOnDeckItem> recentActivity;
+  final List<PlexOnDeckItem> suggestions;
+
+  const Home({
+    required this.server,
+    required this.sections,
+    required this.onDeck,
+    required this.recentlyAdded,
+    required this.recentActivity,
+    required this.suggestions,
+  });
+
+  Home copyWith({List<PlexOnDeckItem>? onDeck}) => Home(
+        server: server,
+        sections: sections,
+        onDeck: onDeck ?? this.onDeck,
+        recentlyAdded: recentlyAdded,
+        recentActivity: recentActivity,
+        suggestions: suggestions,
+      );
 }
 
 class Library extends AppState {
-  final String sectionKey;
+  final LibraryContext ctx;
 
-  const Library({required this.sectionKey});
+  const Library({required this.ctx});
 }
 
 class LoadingSection extends AppState {
-  final AppState returnState;
+  final PlexServer server;
+  final List<PlexSection> sections;
+  final String label;
+  final String? selectedSectionKey;
 
-  const LoadingSection({required this.returnState});
+  const LoadingSection({required this.server, required this.sections, required this.label, this.selectedSectionKey});
 }
 
 class Settings extends AppState {
+  final LibraryContext ctx;
   final AppState returnState;
+  final String? relayHint;
 
-  const Settings({required this.returnState});
+  const Settings({required this.ctx, required this.returnState, this.relayHint});
 }
 
 class MovieDetail extends AppState {
-  final String ratingKey;
+  final LibraryContext ctx;
+  final PlexLibraryItem movie;
   final AppState returnState;
 
-  const MovieDetail({required this.ratingKey, required this.returnState});
+  const MovieDetail({required this.ctx, required this.movie, required this.returnState});
 }
 
 class PersonFilmography extends AppState {
-  final String personKey;
+  final LibraryContext ctx;
+  final PlexPerson person;
+  final List<PlexLibraryItem> items;
   final AppState returnState;
 
-  const PersonFilmography({required this.personKey, required this.returnState});
+  const PersonFilmography({required this.ctx, required this.person, required this.items, required this.returnState});
 }
 
 class CollectionDetail extends AppState {
-  final String collectionKey;
+  final LibraryContext ctx;
+  final PlexCollection collection;
+  final List<PlexLibraryItem> items;
   final AppState returnState;
 
-  const CollectionDetail({required this.collectionKey, required this.returnState});
+  const CollectionDetail({required this.ctx, required this.collection, required this.items, required this.returnState});
 }
 
 class ShowSeasons extends AppState {
-  final String showKey;
+  final LibraryContext ctx;
+  final PlexLibraryItem show;
+  final List<PlexSeason> seasons;
   final AppState returnState;
 
-  const ShowSeasons({required this.showKey, required this.returnState});
+  const ShowSeasons({required this.ctx, required this.show, required this.seasons, required this.returnState});
 }
 
 class ShowEpisodes extends AppState {
-  final String seasonKey;
+  final LibraryContext ctx;
+  final PlexLibraryItem show;
+  final List<PlexSeason> seasons;
+  final PlexSeason season;
+  final List<PlexEpisode> episodes;
   final AppState returnState;
 
-  const ShowEpisodes({required this.seasonKey, required this.returnState});
+  const ShowEpisodes({
+    required this.ctx,
+    required this.show,
+    required this.seasons,
+    required this.season,
+    required this.episodes,
+    required this.returnState,
+  });
 }
 
 class EpisodeDetail extends AppState {
-  final String episodeKey;
+  final LibraryContext ctx;
+  final PlexLibraryItem show;
+  final PlexEpisode episode;
   final AppState returnState;
 
-  const EpisodeDetail({required this.episodeKey, required this.returnState});
+  const EpisodeDetail({required this.ctx, required this.show, required this.episode, required this.returnState});
 }
 
 class Lobby extends AppState {
-  final String roomId;
+  final PlexServer server;
+  final PlexMovieDetail detail;
   final AppState returnState;
+  final RelayClient relay;
+  final String hostName;
+  final String relayNickname;
+  final String? thumb;
+  final bool isHost;
 
-  const Lobby({required this.roomId, required this.returnState});
+  const Lobby({
+    required this.server,
+    required this.detail,
+    required this.returnState,
+    required this.relay,
+    required this.hostName,
+    required this.relayNickname,
+    this.thumb,
+    this.isHost = false,
+  });
 }
 
 class Player extends AppState {
-  final String ratingKey;
+  final PlexServer server;
+  final PlexMovieDetail detail;
   final AppState returnState;
+  final RelayClient? relay;
 
-  const Player({required this.ratingKey, required this.returnState});
+  const Player({required this.server, required this.detail, required this.returnState, this.relay});
 }

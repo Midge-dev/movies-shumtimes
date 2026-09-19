@@ -45,6 +45,7 @@ dependencies:
   shelf: ^1.4.2
   uuid: ^4.6.0
   video_player: ^2.10.0
+  collection: ^1.19.0
 
 dev_dependencies:
   flutter_test:
